@@ -7,10 +7,13 @@ const state = {
 };
 
 // ===== עזרי API =====
+// בסיס ה-API יחסי לתיקיית הדף — עובד גם בשורש (/) וגם תחת נתיב (/loop-it-mondial/).
+const API_PREFIX = location.pathname.replace(/[^/]*$/, '').replace(/\/$/, '') + '/api';
+
 async function api(path, { method = 'GET', body } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (state.token) headers.Authorization = 'Bearer ' + state.token;
-  const res = await fetch('/api' + path, {
+  const res = await fetch(API_PREFIX + path, {
     method, headers, body: body ? JSON.stringify(body) : undefined,
   });
   let data = {};
