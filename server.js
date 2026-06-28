@@ -142,7 +142,7 @@ function isLocked(match) {
 
 // כל המשחקים + הניחוש של המשתמש הנוכחי לכל משחק
 app.get('/api/matches', requireAuth, (req, res) => {
-  const matches = db.prepare('SELECT * FROM matches ORDER BY sort_order, id').all();
+  const matches = db.prepare('SELECT * FROM matches ORDER BY kickoff IS NULL, kickoff ASC, sort_order, id').all();
   const preds = db.prepare('SELECT * FROM predictions WHERE user_id = ?').all(req.user.id);
   const byMatch = Object.fromEntries(preds.map((p) => [p.match_id, p]));
 
@@ -220,7 +220,7 @@ app.get('/api/leaderboard', (req, res) => {
 // =================== פאנל ניהול ===================
 
 app.get('/api/admin/matches', requireAdmin, (req, res) => {
-  const matches = db.prepare('SELECT * FROM matches ORDER BY sort_order, id').all();
+  const matches = db.prepare('SELECT * FROM matches ORDER BY kickoff IS NULL, kickoff ASC, sort_order, id').all();
   res.json({
     matches: matches.map((m) => ({
       id: m.id, stage: m.stage, teamA: m.team_a, teamB: m.team_b,
@@ -240,7 +240,10 @@ app.post('/api/admin/matches', requireAdmin, (req, res) => {
   const teamB = String(req.body.teamB || '').trim();
   if (!teamA || !teamB) return res.status(400).json({ error: 'יש להזין שתי נבחרות' });
   const kickoff = req.body.kickoff ? new Date(req.body.kickoff).toISOString() : null;
-  const sortOrder = Number(req.body.sortOrder) || 0;
+  // סדר ברירת מחדל לפי מועד הפתיחה (כדי שהרשימה תהיה כרונולוגית)
+  const sortOrder = req.body.sortOrder != null
+    ? Number(req.body.sortOrder)
+    : (kickoff ? Math.floor(new Date(kickoff).getTime() / 1000) : 0);
   const providerFixtureId = req.body.providerFixtureId ? String(req.body.providerFixtureId).trim() : null;
   const providerHomeIsA = req.body.providerHomeIsA === false || req.body.providerHomeIsA === 0 ? 0 : 1;
 

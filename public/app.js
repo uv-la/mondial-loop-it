@@ -30,10 +30,35 @@ function msg(el, text, kind = 'err') {
   el.innerHTML = text ? `<div class="msg ${kind}">${esc(text)}</div>` : '';
 }
 
+// תמיד מציג בשעון ישראל (Asia/Jerusalem), לא משנה היכן נמצא הצופה.
 function fmtDate(iso) {
   if (!iso) return 'מועד ייקבע';
   const d = new Date(iso);
-  return d.toLocaleString('he-IL', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString('he-IL', {
+    weekday: 'short', day: 'numeric', month: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jerusalem',
+  });
+}
+
+// ---- המרת מועד משעון ישראל ל-UTC (ISO) ----
+// מפרש "YYYY-MM-DDTHH:mm" כשעון ישראל, ללא תלות באזור הזמן של הדפדפן.
+function israelOffsetMinutes(date) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Jerusalem', hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const p = dtf.formatToParts(date).reduce((a, x) => (a[x.type] = x.value, a), {});
+  const asUTC = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  return (asUTC - date.getTime()) / 60000;
+}
+function israelLocalToISO(dateStr, timeStr) {
+  // dateStr "YYYY-MM-DD", timeStr "HH:mm" — שניהם שעון ישראל
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const [hh, mm] = timeStr.split(':').map(Number);
+  const guess = Date.UTC(y, m - 1, d, hh, mm);
+  const off = israelOffsetMinutes(new Date(guess));
+  return new Date(guess - off * 60000).toISOString();
 }
 
 // מיפוי שמות נבחרות נפוצות (עברית/אנגלית) לקוד מדינה (ISO) עבור דגלים מ-flagcdn.
@@ -408,16 +433,29 @@ async function renderAdmin() {
       : `<div class="msg info">ה-API לא מחובר — אין משיכה אוטומטית. כדי להפעיל הגדירו <b>FOOTBALL_API_KEY</b> ב-Render (ראו DEPLOY-loop-it.md). אפשר להזין משחקים ותוצאות ידנית בינתיים.</div>`}
   </div>`;
 
+  // אפשרויות שעה בקפיצות של חצי שעה
+  let timeOpts = '<option value="">שעה</option>';
+  for (let h = 0; h < 24; h++) for (const m of [0, 30]) {
+    const t = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+    timeOpts += `<option value="${t}">${t}</option>`;
+  }
+
   // טופס הוספת משחק
   html += `<div class="card">
     <h2>➕ הוספת משחק</h2>
     <p class="sub">הזינו את שתי הנבחרות, השלב, ומועד הפתיחה (אחרי המועד הניחושים ננעלים אוטומטית).</p>
-    <div class="row"><div><label>שלב</label><select id="new-stage">${stageOpts}</select></div>
-    <div><label>מועד פתיחה (אופציונלי)</label><input type="datetime-local" id="new-kickoff" /></div></div>
+    <div class="row"><div><label>שלב</label><select id="new-stage">${stageOpts}</select></div></div>
     <div class="row"><div><label>נבחרת א'</label><input type="text" id="new-a" placeholder="לדוגמה: ארגנטינה" /></div>
     <div><label>נבחרת ב'</label><input type="text" id="new-b" placeholder="לדוגמה: צרפת" /></div></div>
-    ${prov.configured ? `<div class="row"><div><label>מזהה משחק ב-API (אופציונלי)</label><input type="text" id="new-fix" inputmode="numeric" placeholder="לעדכון אוטומטי" /></div></div>` : ''}
-    <div style="height:12px"></div>
+    <label style="margin-top:12px">מועד פתיחה — שעון ישראל 🇮🇱 (אופציונלי)</label>
+    <div class="row">
+      <div><input type="date" id="new-date" /></div>
+      <div><select id="new-time">${timeOpts}</select></div>
+      <div style="flex:0 0 auto;display:flex;align-items:flex-end"><button class="btn small ghost" id="btn-confirm-time">✓ אישור מועד</button></div>
+    </div>
+    <div id="kickoff-display" class="tiny" style="margin-top:8px"></div>
+    ${prov.configured ? `<div class="row" style="margin-top:10px"><div><label>מזהה משחק ב-API (אופציונלי)</label><input type="text" id="new-fix" inputmode="numeric" placeholder="לעדכון אוטומטי" /></div></div>` : ''}
+    <div style="height:14px"></div>
     <button class="btn" id="btn-add-match">הוספת משחק</button>
     <span id="add-status" class="tiny" style="margin-right:10px"></span>
   </div>`;
@@ -432,15 +470,35 @@ async function renderAdmin() {
   html += `</div>`;
   root.innerHTML = html;
 
+  // מחזיר את מועד הפתיחה (ISO) מהשדות, או null. מציג תצוגה מאומתת.
+  function readKickoff(showFeedback) {
+    const dateStr = $('#new-date').value;
+    const timeStr = $('#new-time').value;
+    const disp = $('#kickoff-display');
+    if (!dateStr && !timeStr) { if (showFeedback) disp.innerHTML = ''; return null; }
+    if (!dateStr || !timeStr) {
+      if (showFeedback) disp.innerHTML = '<span style="color:var(--red-bright)">יש לבחור גם תאריך וגם שעה</span>';
+      return false;
+    }
+    const iso = israelLocalToISO(dateStr, timeStr);
+    if (showFeedback) disp.innerHTML = `<span style="color:var(--gold)">📅 נקבע: ${esc(fmtDate(iso))} (שעון ישראל)</span>`;
+    return iso;
+  }
+
+  $('#btn-confirm-time').onclick = () => readKickoff(true);
+  $('#new-time').onchange = () => readKickoff(true);
+
   $('#btn-add-match').onclick = async () => {
+    const st = $('#add-status');
+    const kickoff = readKickoff(true);
+    if (kickoff === false) { st.textContent = 'מועד הפתיחה לא תקין'; st.style.color = 'var(--red-bright)'; return; }
     const body = {
       stage: $('#new-stage').value,
       teamA: $('#new-a').value.trim(),
       teamB: $('#new-b').value.trim(),
-      kickoff: $('#new-kickoff').value || null,
+      kickoff: kickoff || null,
     };
     if ($('#new-fix')) body.providerFixtureId = $('#new-fix').value.trim();
-    const st = $('#add-status');
     if (!body.teamA || !body.teamB) { st.textContent = 'נא להזין שתי נבחרות'; st.style.color = 'var(--red-bright)'; return; }
     try {
       await api('/admin/matches', { method: 'POST', body });
