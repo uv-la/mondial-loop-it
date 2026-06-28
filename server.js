@@ -5,15 +5,11 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { db } from './db.js';
 import { scorePrediction } from './scoring.js';
-import { mailerConfigured, sendOtpEmail, verifyMailer } from './mailer.js';
 import { apiConfigured, getFixtureById, listWorldCupFixtures, fetchKnockoutFixtures } from './providers.js';
 import {
-  PORT, DEMO_MODE, ADMIN_EMAILS, OTP_TTL_MINUTES, SESSION_TTL_HOURS,
+  PORT, ADMIN_USERS, SESSION_TTL_HOURS,
   STAGES, STAGE_BY_KEY, SCORING, POLL_MINUTES,
 } from './config.js';
-
-// מצב הדגמה פעיל רק אם לא הוגדר שרת מייל אמיתי.
-const DEMO_ACTIVE = DEMO_MODE && !mailerConfigured;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -22,12 +18,30 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- עזרי זמן ----------
 const nowIso = () => new Date().toISOString();
-const plusMinutes = (m) => new Date(Date.now() + m * 60000).toISOString();
 const plusHours = (h) => new Date(Date.now() + h * 3600000).toISOString();
-
-const isAdmin = (email) => ADMIN_EMAILS.includes(String(email).toLowerCase());
-const gen6 = () => String(crypto.randomInt(0, 1000000)).padStart(6, '0');
 const genToken = () => crypto.randomBytes(24).toString('hex');
+
+// ---------- סיסמאות (scrypt) ----------
+function hashPassword(pw) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(pw, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+function verifyPassword(pw, stored) {
+  const [salt, hash] = String(stored).split(':');
+  if (!salt || !hash) return false;
+  const test = crypto.scryptSync(pw, salt, 64).toString('hex');
+  const a = Buffer.from(hash, 'hex');
+  const b = Buffer.from(test, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// אדמין לפי שם משתמש; אם לא הוגדרה רשימה — המשתמש הראשון (id=1) הוא האדמין.
+function isAdmin(user) {
+  if (!user) return false;
+  if (ADMIN_USERS.length) return ADMIN_USERS.includes(String(user.username).toLowerCase());
+  return user.id === 1;
+}
 
 // ---------- אימות ----------
 function authUser(req) {
@@ -40,8 +54,7 @@ function authUser(req) {
     db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
     return null;
   }
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(sess.user_id);
-  return user || null;
+  return db.prepare('SELECT * FROM users WHERE id = ?').get(sess.user_id) || null;
 }
 
 function requireAuth(req, res, next) {
@@ -54,90 +67,52 @@ function requireAuth(req, res, next) {
 function requireAdmin(req, res, next) {
   const user = authUser(req);
   if (!user) return res.status(401).json({ error: 'יש להתחבר תחילה' });
-  if (!isAdmin(user.email)) return res.status(403).json({ error: 'אין הרשאת ניהול' });
+  if (!isAdmin(user)) return res.status(403).json({ error: 'אין הרשאת ניהול' });
   req.user = user;
   next();
 }
 
-const publicUser = (u) => ({
-  id: u.id, email: u.email, displayName: u.display_name,
-  isAdmin: isAdmin(u.email),
-});
+const publicUser = (u) => ({ id: u.id, username: u.username, isAdmin: isAdmin(u) });
 
-// =================== נתיבי אימות (Auth) ===================
-
-// שלב 1: בקשת קוד אקראי למייל (להרשמה ולכל התחברות)
-app.post('/api/auth/send-code', async (req, res) => {
-  const email = String(req.body.email || '').trim().toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    return res.status(400).json({ error: 'כתובת מייל לא תקינה' });
-  }
-
-  // יצירת משתמש בפעם הראשונה
-  let user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-  if (!user) {
-    const info = db.prepare('INSERT INTO users (email) VALUES (?)').run(email);
-    user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
-  }
-
-  const code = gen6();
-  db.prepare('INSERT INTO otp_codes (email, code, expires_at) VALUES (?, ?, ?)')
-    .run(email, code, plusMinutes(OTP_TTL_MINUTES));
-
-  const isNew = !user.verified;
-  const payload = {
-    ok: true,
-    isNewUser: isNew,
-    message: isNew ? 'נשלח קוד אימות למייל' : 'נשלח קוד התחברות למייל',
-  };
-
-  if (DEMO_ACTIVE) {
-    // מצב הדגמה — מציגים את הקוד על המסך (במקום מייל אמיתי)
-    payload.demoCode = code;
-    console.log(`[DEMO] קוד עבור ${email}: ${code}`);
-  } else if (mailerConfigured) {
-    // שליחת מייל אמיתי
-    try {
-      await sendOtpEmail(email, code, isNew);
-    } catch (e) {
-      console.error('שגיאת שליחת מייל:', e.message);
-      return res.status(502).json({ error: 'שליחת המייל נכשלה. נסו שוב מאוחר יותר.' });
-    }
-  } else {
-    return res.status(500).json({ error: 'שליחת מייל לא מוגדרת בשרת' });
-  }
-  res.json(payload);
-});
-
-// שלב 2: אימות הקוד → יצירת Session והתחברות
-app.post('/api/auth/verify', (req, res) => {
-  const email = String(req.body.email || '').trim().toLowerCase();
-  const code = String(req.body.code || '').trim();
-
-  const row = db.prepare(
-    `SELECT * FROM otp_codes WHERE email = ? AND code = ? AND used = 0 AND expires_at > ?
-     ORDER BY id DESC LIMIT 1`
-  ).get(email, code, nowIso());
-
-  if (!row) return res.status(400).json({ error: 'קוד שגוי או שפג תוקפו' });
-
-  db.prepare('UPDATE otp_codes SET used = 1 WHERE id = ?').run(row.id);
-
-  let user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-  if (!user) {
-    const info = db.prepare('INSERT INTO users (email, verified) VALUES (?, 1)').run(email);
-    user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
-  } else if (!user.verified) {
-    db.prepare('UPDATE users SET verified = 1 WHERE id = ?').run(user.id);
-    user.verified = 1;
-  }
-
-  // קוד אקראי חדש לכל חיבור = token חדש בכל פעם
+function startSession(user, res) {
   const token = genToken();
   db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)')
     .run(token, user.id, plusHours(SESSION_TTL_HOURS));
-
   res.json({ ok: true, token, user: publicUser(user) });
+}
+
+const USERNAME_RE = /^[֐-׿a-zA-Z0-9_\- ]{2,20}$/; // עברית/אנגלית/ספרות, 2-20 תווים
+
+// =================== נתיבי אימות (Auth) ===================
+
+// הרשמה: שם משתמש (כינוי) + סיסמה
+app.post('/api/auth/register', (req, res) => {
+  const username = String(req.body.username || '').trim();
+  const password = String(req.body.password || '');
+  if (!USERNAME_RE.test(username)) {
+    return res.status(400).json({ error: 'שם משתמש לא תקין (2-20 תווים, אותיות/ספרות)' });
+  }
+  if (password.length < 4) {
+    return res.status(400).json({ error: 'הסיסמה חייבת להכיל לפחות 4 תווים' });
+  }
+  const exists = db.prepare('SELECT id FROM users WHERE username = ? COLLATE NOCASE').get(username);
+  if (exists) return res.status(409).json({ error: 'שם המשתמש כבר תפוס, בחרו אחר' });
+
+  const info = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)')
+    .run(username, hashPassword(password));
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+  startSession(user, res);
+});
+
+// כניסה: שם משתמש + סיסמה
+app.post('/api/auth/login', (req, res) => {
+  const username = String(req.body.username || '').trim();
+  const password = String(req.body.password || '');
+  const user = db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE').get(username);
+  if (!user || !verifyPassword(password, user.password_hash)) {
+    return res.status(401).json({ error: 'שם משתמש או סיסמה שגויים' });
+  }
+  startSession(user, res);
 });
 
 app.post('/api/auth/logout', requireAuth, (req, res) => {
@@ -151,16 +126,9 @@ app.get('/api/me', requireAuth, (req, res) => {
   res.json({ user: publicUser(req.user) });
 });
 
-// עדכון שם תצוגה (לטבלת הדירוג)
-app.post('/api/me/name', requireAuth, (req, res) => {
-  const name = String(req.body.displayName || '').trim().slice(0, 40);
-  db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(name || null, req.user.id);
-  res.json({ ok: true });
-});
-
 // =================== מטא-נתונים ===================
 app.get('/api/config', (req, res) => {
-  res.json({ stages: STAGES, scoring: SCORING, demoMode: DEMO_ACTIVE });
+  res.json({ stages: STAGES, scoring: SCORING });
 });
 
 // =================== משחקים וניחושים ===================
@@ -231,21 +199,19 @@ app.post('/api/predictions', requireAuth, (req, res) => {
 // =================== טבלת דירוג ===================
 app.get('/api/leaderboard', (req, res) => {
   const rows = db.prepare(`
-    SELECT u.id, u.email, u.display_name,
+    SELECT u.id, u.username,
            COALESCE(SUM(CASE WHEN p.scored = 1 THEN p.points ELSE 0 END), 0) AS total,
            COUNT(CASE WHEN p.scored = 1 AND p.points > 0 THEN 1 END) AS hits,
            COUNT(CASE WHEN p.scored = 1 THEN 1 END) AS scored_count
     FROM users u
     LEFT JOIN predictions p ON p.user_id = u.id
-    WHERE u.verified = 1
     GROUP BY u.id
     ORDER BY total DESC, hits DESC, u.id ASC
   `).all();
 
-  const nameOf = (r) => r.display_name || r.email.split('@')[0];
   res.json({
     leaderboard: rows.map((r, i) => ({
-      rank: i + 1, name: nameOf(r), total: r.total,
+      rank: i + 1, name: r.username, total: r.total,
       hits: r.hits, scoredCount: r.scored_count,
     })),
   });
@@ -462,18 +428,13 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.ht
 
 app.listen(PORT, async () => {
   console.log(`\n⚽ מונדיאל 2026 — שרת הניחושים רץ על http://localhost:${PORT}`);
-  if (mailerConfigured) {
-    const ok = await verifyMailer();
-    console.log(`   שליחת מייל: ${ok ? 'מחוברת ✓' : 'מוגדרת אך החיבור נכשל ⚠️'}`);
-  } else {
-    console.log(`   מצב הדגמה (OTP על המסך): פעיל (לא הוגדר SMTP)`);
-  }
+  console.log(`   רישום: שם משתמש + סיסמה`);
   if (apiConfigured) {
-    console.log(`   עדכון תוצאות אוטומטי: API מחובר ✓ (בדיקה כל ${POLL_MINUTES} דקות)`);
+    console.log(`   עדכון משחקים+תוצאות אוטומטי: API מחובר ✓ (כל ${POLL_MINUTES} דקות)`);
   } else {
-    console.log(`   עדכון תוצאות אוטומטי: כבוי (הזנה ידנית בלבד — לא הוגדר FOOTBALL_API_KEY)`);
+    console.log(`   עדכון אוטומטי: כבוי (לא הוגדר FOOTBALL_API_KEY)`);
   }
-  console.log(`   אדמינים: ${ADMIN_EMAILS.join(', ')}\n`);
+  console.log(`   אדמינים: ${ADMIN_USERS.length ? ADMIN_USERS.join(', ') : 'המשתמש הראשון שנרשם'}\n`);
 
   // מתזמן רקע: בדיקת תוצאות אוטומטית כל POLL_MINUTES דקות
   if (apiConfigured && POLL_MINUTES > 0) {

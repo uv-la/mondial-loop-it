@@ -12,22 +12,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      - key: ADMIN_EMAILS
-        value: uv.levari@gmail.com
-      # (בתוכנית חינם אין DB_PATH — מסד הנתונים נשמר מקומית ב-./mondial.db ומתאפס בכל פריסה)
-      # פרטי המייל (SMTP) — הזינו את הערכים בלוח הבקרה של Render (Environment), לא כאן:
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "465"
-      - key: SMTP_SECURE
-        value: "true"
-      - key: SMTP_USER
-        sync: false          # תזינו בלוח הבקרה (סוד)
-      - key: SMTP_PASS
-        sync: false          # תזינו בלוח הבקרה (App Password — סוד!)
-      - key: MAIL_FROM
+      # שם המשתמש (כינוי) שיהיה אדמין. אם ריק — המשתמש הראשון שנרשם הוא האדמין.
+      - key: ADMIN_USERS
         sync: false
+      # (בתוכנית חינם אין DB_PATH — מסד הנתונים נשמר מקומית ב-./mondial.db ומתאפס בכל פריסה)
       # עדכון משחקים+תוצאות אוטומטי (API-Football). הזינו את המפתח בלוח הבקרה:
       - key: FOOTBALL_API_KEY
         sync: false

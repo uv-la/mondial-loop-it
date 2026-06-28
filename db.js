@@ -6,20 +6,10 @@ db.pragma('journal_mode = WAL');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  email       TEXT UNIQUE NOT NULL,
-  display_name TEXT,
-  verified    INTEGER NOT NULL DEFAULT 0,
-  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS otp_codes (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  email      TEXT NOT NULL,
-  code       TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  used       INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  username      TEXT UNIQUE NOT NULL,        -- שם משתמש / כינוי (מוצג בטבלה)
+  password_hash TEXT NOT NULL,               -- סיסמה מוצפנת (scrypt)
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS sessions (

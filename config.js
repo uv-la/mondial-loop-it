@@ -3,25 +3,19 @@
 
 export const PORT = process.env.PORT || 3000;
 
-// מצב הדגמה: הקוד האקראי (OTP) יוחזר ויוצג על המסך במקום להישלח במייל.
-// כדי לעבור לשליחת מייל אמיתית — שנה ל-false והגדר שרת SMTP.
-export const DEMO_MODE = process.env.DEMO_MODE !== 'false';
-
-// רשימת מנהלים (אדמינים) — מופרדים בפסיק. למייל הזה יופיע פאנל ניהול.
-// בפריסה: הגדר ADMIN_EMAILS="your@email.com,friend@email.com"
-export const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'uv.levari@gmail.com')
+// רשימת מנהלים (אדמינים) לפי שם משתמש — מופרדים בפסיק.
+// בפריסה: הגדר ADMIN_USERS="הכינוי-שלך".
+// אם ריק — המשתמש הראשון שנרשם הופך אוטומטית לאדמין.
+export const ADMIN_USERS = (process.env.ADMIN_USERS || '')
   .split(',')
-  .map((e) => e.trim().toLowerCase())
+  .map((u) => u.trim().toLowerCase())
   .filter(Boolean);
 
 // נתיב קובץ מסד הנתונים (SQLite)
 export const DB_PATH = process.env.DB_PATH || './mondial.db';
 
-// תוקף קוד אימות בדקות
-export const OTP_TTL_MINUTES = 15;
-
-// תוקף Session (חיבור) בשעות — אחרי זה צריך קוד חדש
-export const SESSION_TTL_HOURS = 12;
+// תוקף Session (חיבור) בשעות
+export const SESSION_TTL_HOURS = 720; // 30 ימים
 
 // ----- חוקי הניקוד -----
 // בסיס: זהות העולה = 2, תוצאה מדויקת = 3, בינגו מושלם = 5.

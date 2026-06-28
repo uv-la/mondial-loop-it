@@ -85,59 +85,48 @@ function confetti(burst = 70) {
   }
 }
 
-// ===== אימות =====
-$('#btn-send-code').onclick = async () => {
-  const email = $('#email').value.trim();
-  msg($('#auth-msg'), '');
-  if (!email) return msg($('#auth-msg'), 'נא להזין כתובת מייל');
-  $('#btn-send-code').disabled = true;
-  try {
-    const r = await api('/auth/send-code', { method: 'POST', body: { email } });
-    state.email = email;
-    $('#step-email').classList.add('hide');
-    $('#step-code').classList.remove('hide');
-    if (r.demoCode) {
-      $('#demo-box').innerHTML = `מצב הדגמה — הקוד שלך:<div class="demo-code">${esc(r.demoCode)}</div><span class="tiny">(במערכת אמיתית הקוד היה נשלח למייל)</span>`;
-      $('#demo-box').classList.remove('hide');
-    } else {
-      $('#demo-box').innerHTML = `📧 קוד בן 6 ספרות נשלח אל <b>${esc(email)}</b>. בדקו את תיבת הדואר (וגם ספאם).`;
-      $('#demo-box').classList.remove('hide');
-    }
-    $('#code').focus();
-  } catch (e) {
-    msg($('#auth-msg'), e.message);
-  } finally {
-    $('#btn-send-code').disabled = false;
-  }
-};
+// ===== אימות (שם משתמש + סיסמה) =====
+let authMode = 'login'; // 'login' | 'register'
 
-$('#btn-back').onclick = () => {
-  $('#step-code').classList.add('hide');
-  $('#step-email').classList.remove('hide');
-  $('#code').value = '';
+function setAuthMode(mode) {
+  authMode = mode;
+  $('#tab-login').classList.toggle('active', mode === 'login');
+  $('#tab-register').classList.toggle('active', mode === 'register');
+  $('#auth-sub').textContent = mode === 'login'
+    ? 'היכנסו עם שם המשתמש והסיסמה שלכם.'
+    : 'בחרו כינוי וסיסמה — בלי מייל, בלי פרטים אישיים.';
+  $('#password').setAttribute('autocomplete', mode === 'login' ? 'current-password' : 'new-password');
+  $('#password').placeholder = mode === 'login' ? 'הסיסמה שלך' : 'בחרו סיסמה (לפחות 4 תווים)';
+  $('#btn-auth').innerHTML = mode === 'login' ? 'כניסה ⚽' : 'הרשמה ⚽';
   msg($('#auth-msg'), '');
-};
+}
+$('#tab-login').onclick = () => setAuthMode('login');
+$('#tab-register').onclick = () => setAuthMode('register');
 
-$('#btn-verify').onclick = async () => {
-  const code = $('#code').value.trim();
+$('#btn-auth').onclick = async () => {
+  const username = $('#username').value.trim();
+  const password = $('#password').value;
   msg($('#auth-msg'), '');
-  if (code.length < 4) return msg($('#auth-msg'), 'נא להזין את הקוד');
-  $('#btn-verify').disabled = true;
+  if (!username) return msg($('#auth-msg'), 'נא להזין שם משתמש');
+  if (!password) return msg($('#auth-msg'), 'נא להזין סיסמה');
+  $('#btn-auth').disabled = true;
   try {
-    const r = await api('/auth/verify', { method: 'POST', body: { email: state.email, code } });
+    const r = await api('/auth/' + authMode, { method: 'POST', body: { username, password } });
     state.token = r.token;
     state.user = r.user;
     localStorage.setItem('token', r.token);
+    $('#password').value = '';
+    if (authMode === 'register') confetti(50);
     await afterLogin();
   } catch (e) {
     msg($('#auth-msg'), e.message);
   } finally {
-    $('#btn-verify').disabled = false;
+    $('#btn-auth').disabled = false;
   }
 };
 
-$('#code').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btn-verify').click(); });
-$('#email').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btn-send-code').click(); });
+$('#username').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#password').focus(); });
+$('#password').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btn-auth').click(); });
 
 async function logout() {
   try { await api('/auth/logout', { method: 'POST' }); } catch {}
@@ -147,15 +136,14 @@ async function logout() {
   $('#app').classList.add('hide');
   $('#nav').classList.add('hide');
   $('#auth').classList.remove('hide');
-  $('#step-code').classList.add('hide');
-  $('#step-email').classList.remove('hide');
-  $('#email').value = ''; $('#code').value = '';
+  $('#username').value = ''; $('#password').value = '';
+  setAuthMode('login');
 }
 
 function renderUserbox() {
   const box = $('#userbox');
   if (state.user) {
-    box.innerHTML = `<span class="uname">${esc(state.user.displayName || state.user.email.split('@')[0])}</span>
+    box.innerHTML = `<span class="uname">${esc(state.user.username)}</span>
       <button class="btn ghost small" id="btn-logout">יציאה</button>`;
     $('#btn-logout').onclick = logout;
   } else {
@@ -311,7 +299,7 @@ async function renderLeaderboard() {
     root.innerHTML = '<div class="card center muted">אין עדיין משתתפים</div>';
     return;
   }
-  const myName = state.user.displayName || state.user.email.split('@')[0];
+  const myName = state.user.username;
   const lb = data.leaderboard;
   const initials = (n) => esc(String(n).trim().slice(0, 2).toUpperCase());
 
@@ -350,27 +338,11 @@ async function renderLeaderboard() {
       <thead><tr><th>#</th><th>שחקן/ית</th><th></th><th>נק'</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-  </div>
-  <div class="card">
-    <h2>שם תצוגה</h2>
-    <p class="sub">איך השם שלך יופיע בטבלה (ברירת מחדל: שם המשתמש מהמייל).</p>
-    <div class="row">
-      <input type="text" id="dispname" maxlength="40" placeholder="הכינוי שלך" value="${esc(state.user.displayName || '')}" />
-      <button class="btn" id="save-name" style="flex:0 0 auto">שמירה</button>
-    </div>
   </div>`;
 
   // חגיגה אם אתה במקום הראשון עם נקודות
   const leader = lb[0];
   if (leader && leader.name === myName && leader.total > 0) confetti(90);
-
-  $('#save-name').onclick = async () => {
-    const displayName = $('#dispname').value.trim();
-    await api('/me/name', { method: 'POST', body: { displayName } });
-    state.user.displayName = displayName || null;
-    renderUserbox();
-    renderLeaderboard();
-  };
 }
 
 // ===== חוקים =====
@@ -387,7 +359,7 @@ function renderRules() {
   $('#tab-rules').innerHTML = `<div class="card">
     <h2>📜 חוקי המשחק</h2>
     <ul class="scoring-guide">
-      <li><b>הרשמה:</b> עם כתובת מייל בלבד. בכל כניסה נשלח קוד אקראי לאימות (במצב הדגמה הקוד מוצג על המסך).</li>
+      <li><b>הרשמה:</b> עם שם משתמש (כינוי) וסיסמה בלבד — בלי מייל ובלי פרטים אישיים.</li>
       <li><b>הניחוש:</b> בכל משחק בוחרים מי <b>עולה הלאה</b> ומה תהיה <b>תוצאת 90 הדקות</b>.</li>
       <li><b>נעילה:</b> אפשר לעדכן ניחוש עד שריקת הפתיחה של המשחק. אחר כך הניחוש ננעל.</li>
       <li>המשחק מתחיל משמינית הגמר, וככל שמתקדמים — הניקוד מוכפל כדי לשמור על מתח עד הסוף.</li>
@@ -404,7 +376,13 @@ function renderRules() {
       <thead><tr><th>שלב</th><th class="center">עולה</th><th class="center">תוצאה מדויקת</th><th class="center">בינגו</th></tr></thead>
       <tbody>${stageRows}</tbody>
     </table>
+    <hr class="sep" />
+    <h2>📲 התקנת האפליקציה</h2>
+    <p class="sub">הוסיפו את המשחק כאפליקציה למסך הבית — אייקון, מסך מלא, וכניסה מהירה.</p>
+    <button class="btn btn-block" id="rules-install">📲 התקן אפליקציה</button>
   </div>`;
+
+  $('#rules-install').onclick = () => $('#btn-install').click();
 }
 
 // ===== פאנל ניהול =====
@@ -589,6 +567,52 @@ function bindAdminRows(matches) {
       renderAdmin();
     };
   });
+}
+
+// ===== PWA — התקנה כאפליקציה =====
+let deferredPrompt = null;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+function showInstallBanner() {
+  if (isStandalone() || localStorage.getItem('installDismissed')) return;
+  $('#install-banner').classList.remove('hide');
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  showInstallBanner();
+});
+
+window.addEventListener('appinstalled', () => {
+  $('#install-banner').classList.add('hide');
+  deferredPrompt = null;
+});
+
+$('#btn-install').onclick = async () => {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    $('#install-banner').classList.add('hide');
+  } else if (isIOS()) {
+    alert('להתקנת האפליקציה:\n1. לחצו על כפתור השיתוף ⬆️ בתחתית הדפדפן (Safari)\n2. בחרו "הוסף למסך הבית" / Add to Home Screen');
+  } else {
+    alert('להתקנה: פתחו את תפריט הדפדפן (⋮) ובחרו "התקן אפליקציה" / Install app');
+  }
+};
+$('#install-close').onclick = () => {
+  $('#install-banner').classList.add('hide');
+  localStorage.setItem('installDismissed', '1');
+};
+
+// ב-iOS אין אירוע התקנה — מציגים את הבאנר עם הוראות
+if (isIOS() && !isStandalone()) setTimeout(showInstallBanner, 1500);
+
+// רישום ה-Service Worker (הופך את האתר לאפליקציה הניתנת להתקנה)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 }
 
 // ===== אתחול =====
