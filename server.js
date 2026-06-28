@@ -1,13 +1,14 @@
 import './env.js'; // חייב להיות ראשון — טוען את .env לפני שאר ההגדרות
 import express from 'express';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { db } from './db.js';
 import { scorePrediction } from './scoring.js';
 import { apiConfigured, getFixtureById, listWorldCupFixtures, fetchKnockoutFixtures } from './providers.js';
 import {
-  PORT, ADMIN_USERS, SESSION_TTL_HOURS,
+  PORT, ADMIN_USERS, SESSION_TTL_HOURS, DB_PATH,
   STAGES, STAGE_BY_KEY, SCORING, POLL_MINUTES,
 } from './config.js';
 
@@ -129,6 +130,26 @@ app.get('/api/me', requireAuth, (req, res) => {
 // =================== מטא-נתונים ===================
 app.get('/api/config', (req, res) => {
   res.json({ stages: STAGES, scoring: SCORING });
+});
+
+// אבחון פריסה — לבדוק אם הדיסק הקבוע מחובר ולאן ה-DB נכתב
+app.get('/api/health', (req, res) => {
+  const abs = path.resolve(DB_PATH);
+  const dir = path.dirname(abs);
+  let dirExists = false, dirWritable = false;
+  try { dirExists = fs.existsSync(dir); } catch {}
+  try { fs.accessSync(dir, fs.constants.W_OK); dirWritable = true; } catch {}
+  let users = -1;
+  try { users = db.prepare('SELECT COUNT(*) c FROM users').get().c; } catch {}
+  res.json({
+    dbPathEnv: DB_PATH,
+    dbAbsolutePath: abs,
+    dbDir: dir,
+    dbDirExists: dirExists,
+    dbDirWritable: dirWritable,
+    onPersistentDisk: abs.startsWith('/data') && dirExists && dirWritable,
+    users,
+  });
 });
 
 // =================== משחקים וניחושים ===================
