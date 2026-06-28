@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>⚽ ניחושי מונדיאל 2026</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="ball">⚽</span>
+      <div>ניחושי מונדיאל 2026
+        <small>נחשו את העולים והתוצאות — מי ייקח את הגביע?</small>
+      </div>
+    </div>
+    <div class="userbox" id="userbox"></div>
+  </header>
+
+  <div class="wrap">
+    <!-- מסך התחברות -->
+    <section id="auth" class="card">
+      <h2>כניסה למשחק</h2>
+      <p class="sub">נרשמים עם כתובת מייל בלבד. בכל כניסה נשלח קוד אקראי לאימות.</p>
+
+      <div id="step-email">
+        <label for="email">כתובת מייל</label>
+        <input type="email" id="email" placeholder="name@example.com" autocomplete="email" />
+        <div style="height:10px"></div>
+        <button class="btn" id="btn-send-code" style="width:100%">שלחו לי קוד</button>
+      </div>
+
+      <div id="step-code" class="hide">
+        <div class="msg info" id="demo-box"></div>
+        <label for="code">הזינו את הקוד בן 6 הספרות</label>
+        <input type="text" id="code" inputmode="numeric" maxlength="6" placeholder="••••••" style="text-align:center;letter-spacing:6px;font-size:20px;direction:ltr" />
+        <div style="height:10px"></div>
+        <div class="row">
+          <button class="btn" id="btn-verify">אישור והתחברות</button>
+          <button class="btn ghost" id="btn-back">חזרה</button>
+        </div>
+      </div>
+      <div id="auth-msg"></div>
+    </section>
+
+    <!-- אזור מחובר -->
+    <section id="app" class="hide">
+      <div class="tabs">
+        <button data-tab="matches" class="active">המשחקים שלי</button>
+        <button data-tab="leaderboard">טבלת דירוג</button>
+        <button data-tab="rules">חוקים וניקוד</button>
+        <button data-tab="admin" id="tab-admin" class="hide">ניהול</button>
+      </div>
+
+      <div id="tab-matches"></div>
+      <div id="tab-leaderboard" class="hide"></div>
+      <div id="tab-rules" class="hide"></div>
+      <div id="tab-admin-panel" class="hide"></div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

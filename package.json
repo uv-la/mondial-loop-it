@@ -1,0 +1,19 @@
+{
+  "name": "mondial-2026-predictions",
+  "version": "1.0.0",
+  "description": "אתר ניחושים לשלבי הנוקאאוט של מונדיאל 2026",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node seed.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "express": "^4.21.2",
+    "nodemailer": "^9.0.1"
+  }
+}
