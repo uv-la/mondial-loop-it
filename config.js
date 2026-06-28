@@ -41,3 +41,13 @@ export const STAGES = [
 ];
 
 export const STAGE_BY_KEY = Object.fromEntries(STAGES.map((s) => [s.key, s]));
+
+// ----- חיבור ל-API כדורגל (API-Football / API-Sports) לעדכון תוצאות אוטומטי -----
+// מפתח חינמי בהרשמה עצמית: https://dashboard.api-football.com  (או דרך RapidAPI)
+// אם לא מוגדר מפתח — העדכון האוטומטי כבוי וההזנה הידנית עובדת כרגיל.
+export const FOOTBALL_API_KEY = process.env.FOOTBALL_API_KEY || '';
+export const FOOTBALL_API_HOST = process.env.FOOTBALL_API_HOST || 'v3.football.api-sports.io';
+export const WC_LEAGUE_ID = process.env.WC_LEAGUE_ID || '1';   // מזהה המונדיאל ב-API-Football
+export const WC_SEASON = process.env.WC_SEASON || '2026';
+// כל כמה דקות לבדוק תוצאות אוטומטית (0 = כבוי, ידני בלבד)
+export const POLL_MINUTES = Number(process.env.POLL_MINUTES || 10);

@@ -6,9 +6,10 @@ import path from 'node:path';
 import { db } from './db.js';
 import { scorePrediction } from './scoring.js';
 import { mailerConfigured, sendOtpEmail, verifyMailer } from './mailer.js';
+import { apiConfigured, getFixtureById, listWorldCupFixtures } from './providers.js';
 import {
   PORT, DEMO_MODE, ADMIN_EMAILS, OTP_TTL_MINUTES, SESSION_TTL_HOURS,
-  STAGES, STAGE_BY_KEY, SCORING,
+  STAGES, STAGE_BY_KEY, SCORING, POLL_MINUTES,
 } from './config.js';
 
 // מצב הדגמה פעיל רק אם לא הוגדר שרת מייל אמיתי.
@@ -260,6 +261,8 @@ app.get('/api/admin/matches', requireAdmin, (req, res) => {
       kickoff: m.kickoff, locked: !!m.locked, resultEntered: !!m.result_entered,
       actualWinner: m.actual_winner, actualScoreA: m.actual_score_a, actualScoreB: m.actual_score_b,
       sortOrder: m.sort_order,
+      providerFixtureId: m.provider_fixture_id || '',
+      providerHomeIsA: m.provider_home_is_a == null ? 1 : m.provider_home_is_a,
     })),
   });
 });
@@ -272,10 +275,12 @@ app.post('/api/admin/matches', requireAdmin, (req, res) => {
   if (!teamA || !teamB) return res.status(400).json({ error: 'יש להזין שתי נבחרות' });
   const kickoff = req.body.kickoff ? new Date(req.body.kickoff).toISOString() : null;
   const sortOrder = Number(req.body.sortOrder) || 0;
+  const providerFixtureId = req.body.providerFixtureId ? String(req.body.providerFixtureId).trim() : null;
+  const providerHomeIsA = req.body.providerHomeIsA === false || req.body.providerHomeIsA === 0 ? 0 : 1;
 
   const info = db.prepare(
-    'INSERT INTO matches (stage, team_a, team_b, kickoff, sort_order) VALUES (?, ?, ?, ?, ?)'
-  ).run(stage, teamA, teamB, kickoff, sortOrder);
+    'INSERT INTO matches (stage, team_a, team_b, kickoff, sort_order, provider_fixture_id, provider_home_is_a) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(stage, teamA, teamB, kickoff, sortOrder, providerFixtureId, providerHomeIsA);
   res.json({ ok: true, id: info.lastInsertRowid });
 });
 
@@ -292,10 +297,14 @@ app.put('/api/admin/matches/:id', requireAdmin, (req, res) => {
     : m.kickoff;
   const locked = req.body.locked != null ? (req.body.locked ? 1 : 0) : m.locked;
   const sortOrder = req.body.sortOrder != null ? Number(req.body.sortOrder) : m.sort_order;
+  const providerFixtureId = req.body.providerFixtureId != null
+    ? (String(req.body.providerFixtureId).trim() || null) : m.provider_fixture_id;
+  const providerHomeIsA = req.body.providerHomeIsA != null
+    ? (req.body.providerHomeIsA ? 1 : 0) : (m.provider_home_is_a == null ? 1 : m.provider_home_is_a);
 
   db.prepare(
-    'UPDATE matches SET stage=?, team_a=?, team_b=?, kickoff=?, locked=?, sort_order=? WHERE id=?'
-  ).run(stage, teamA, teamB, kickoff, locked, sortOrder, id);
+    'UPDATE matches SET stage=?, team_a=?, team_b=?, kickoff=?, locked=?, sort_order=?, provider_fixture_id=?, provider_home_is_a=? WHERE id=?'
+  ).run(stage, teamA, teamB, kickoff, locked, sortOrder, providerFixtureId, providerHomeIsA, id);
   res.json({ ok: true });
 });
 
@@ -306,7 +315,26 @@ app.delete('/api/admin/matches/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// הזנת תוצאה בפועל + חישוב ניקוד מחדש לכל הניחושים של המשחק
+// פונקציית עזר משותפת: שומרת תוצאה ומחשבת ניקוד מחדש לכל הניחושים של המשחק.
+// משמשת גם להזנה ידנית וגם לסנכרון אוטומטי מה-API.
+function applyResult(match, winner, scoreA, scoreB) {
+  db.prepare(
+    `UPDATE matches SET result_entered=1, actual_winner=?, actual_score_a=?, actual_score_b=?, locked=1 WHERE id=?`
+  ).run(winner, scoreA, scoreB, match.id);
+
+  const fullMatch = { ...match, actual_winner: winner, actual_score_a: scoreA, actual_score_b: scoreB };
+  const preds = db.prepare('SELECT * FROM predictions WHERE match_id = ?').all(match.id);
+  const tx = db.transaction(() => {
+    for (const p of preds) {
+      const { points } = scorePrediction(p, fullMatch);
+      db.prepare('UPDATE predictions SET points = ?, scored = 1 WHERE id = ?').run(points, p.id);
+    }
+  });
+  tx();
+  return preds.length;
+}
+
+// הזנת תוצאה ידנית בפועל
 app.post('/api/admin/matches/:id/result', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const m = db.prepare('SELECT * FROM matches WHERE id = ?').get(id);
@@ -320,20 +348,58 @@ app.post('/api/admin/matches/:id/result', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'תוצאה לא תקינה' });
   }
 
-  db.prepare(
-    `UPDATE matches SET result_entered=1, actual_winner=?, actual_score_a=?, actual_score_b=?, locked=1 WHERE id=?`
-  ).run(winner, scoreA, scoreB, id);
+  const scored = applyResult(m, winner, scoreA, scoreB);
+  res.json({ ok: true, scored });
+});
 
-  const fullMatch = { ...m, actual_winner: winner, actual_score_a: scoreA, actual_score_b: scoreB };
-  const preds = db.prepare('SELECT * FROM predictions WHERE match_id = ?').all(id);
-  const tx = db.transaction(() => {
-    for (const p of preds) {
-      const { points } = scorePrediction(p, fullMatch);
-      db.prepare('UPDATE predictions SET points = ?, scored = 1 WHERE id = ?').run(points, p.id);
+// סנכרון אוטומטי מה-API: עובר על משחקים עם מזהה API שעדיין אין להם תוצאה,
+// מושך את התוצאה, ומזין אוטומטית את אלו שהסתיימו.
+async function runSync() {
+  if (!apiConfigured) return { ok: false, error: 'no-key', updated: 0, checked: 0 };
+  const matches = db.prepare(
+    "SELECT * FROM matches WHERE provider_fixture_id IS NOT NULL AND provider_fixture_id != '' AND result_entered = 0"
+  ).all();
+  let updated = 0;
+  const details = [];
+  for (const m of matches) {
+    try {
+      const r = await getFixtureById(m.provider_fixture_id, !!m.provider_home_is_a);
+      if (r && r.decided) {
+        applyResult(m, r.winner, r.scoreA, r.scoreB);
+        updated++;
+        details.push({ id: m.id, teams: `${m.team_a}-${m.team_b}`, score: `${r.scoreA}-${r.scoreB}`, winner: r.winner });
+      }
+    } catch (e) {
+      details.push({ id: m.id, error: e.message });
     }
-  });
-  tx();
-  res.json({ ok: true, scored: preds.length });
+  }
+  return { ok: true, checked: matches.length, updated, details };
+}
+
+app.post('/api/admin/sync', requireAdmin, async (req, res) => {
+  if (!apiConfigured) return res.status(400).json({ error: 'לא הוגדר מפתח API. ראו DEPLOY.md.' });
+  try {
+    const result = await runSync();
+    res.json(result);
+  } catch (e) {
+    res.status(502).json({ error: 'סנכרון נכשל: ' + e.message });
+  }
+});
+
+// סטטוס חיבור ה-API (לתצוגה בפאנל)
+app.get('/api/admin/provider/status', requireAdmin, (req, res) => {
+  res.json({ configured: apiConfigured, pollMinutes: POLL_MINUTES });
+});
+
+// רשימת משחקי המונדיאל מה-API — עוזר לאדמין למצוא מזהי משחקים
+app.get('/api/admin/provider/fixtures', requireAdmin, async (req, res) => {
+  if (!apiConfigured) return res.status(400).json({ error: 'לא הוגדר מפתח API' });
+  try {
+    const fixtures = await listWorldCupFixtures();
+    res.json({ fixtures });
+  } catch (e) {
+    res.status(502).json({ error: 'שליפה נכשלה: ' + e.message });
+  }
 });
 
 // ביטול תוצאה (במקרה של טעות) — פותח מחדש את המשחק
@@ -357,5 +423,24 @@ app.listen(PORT, async () => {
   } else {
     console.log(`   מצב הדגמה (OTP על המסך): פעיל (לא הוגדר SMTP)`);
   }
+  if (apiConfigured) {
+    console.log(`   עדכון תוצאות אוטומטי: API מחובר ✓ (בדיקה כל ${POLL_MINUTES} דקות)`);
+  } else {
+    console.log(`   עדכון תוצאות אוטומטי: כבוי (הזנה ידנית בלבד — לא הוגדר FOOTBALL_API_KEY)`);
+  }
   console.log(`   אדמינים: ${ADMIN_EMAILS.join(', ')}\n`);
+
+  // מתזמן רקע: בדיקת תוצאות אוטומטית כל POLL_MINUTES דקות
+  if (apiConfigured && POLL_MINUTES > 0) {
+    const tick = async () => {
+      try {
+        const r = await runSync();
+        if (r.updated) console.log(`[סנכרון] עודכנו ${r.updated} משחקים אוטומטית`);
+      } catch (e) {
+        console.error('[סנכרון] שגיאה:', e.message);
+      }
+    };
+    setInterval(tick, POLL_MINUTES * 60000);
+    setTimeout(tick, 8000); // בדיקה ראשונה זמן קצר אחרי העלייה
+  }
 });

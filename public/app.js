@@ -33,6 +33,55 @@ function fmtDate(iso) {
   return d.toLocaleString('he-IL', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+// מיפוי שמות נבחרות נפוצות (עברית/אנגלית) לקוד מדינה (ISO) עבור דגלים מ-flagcdn.
+// דגלי אמוג'י לא נתמכים ב-Windows, לכן משתמשים בתמונות דגל שמוצגות בכל מערכת.
+const FLAG_ISO = {
+  'ארגנטינה': 'ar', 'argentina': 'ar', 'ברזיל': 'br', 'brazil': 'br',
+  'צרפת': 'fr', 'france': 'fr', 'אנגליה': 'gb-eng', 'england': 'gb-eng',
+  'ספרד': 'es', 'spain': 'es', 'גרמניה': 'de', 'germany': 'de',
+  'פורטוגל': 'pt', 'portugal': 'pt', 'הולנד': 'nl', 'netherlands': 'nl',
+  'בלגיה': 'be', 'belgium': 'be', 'קרואטיה': 'hr', 'croatia': 'hr',
+  'איטליה': 'it', 'italy': 'it', 'אורוגוואי': 'uy', 'uruguay': 'uy',
+  'מקסיקו': 'mx', 'mexico': 'mx', 'קנדה': 'ca', 'canada': 'ca',
+  'ארה"ב': 'us', 'ארהב': 'us', 'ארצות הברית': 'us', 'usa': 'us', 'united states': 'us',
+  'יפן': 'jp', 'japan': 'jp', 'דרום קוריאה': 'kr', 'south korea': 'kr',
+  'מרוקו': 'ma', 'morocco': 'ma', 'סנגל': 'sn', 'senegal': 'sn',
+  'אוסטרליה': 'au', 'australia': 'au', 'פולין': 'pl', 'poland': 'pl',
+  'שווייץ': 'ch', 'switzerland': 'ch', 'דנמרק': 'dk', 'denmark': 'dk',
+  'קולומביה': 'co', 'colombia': 'co', 'אקוודור': 'ec', 'ecuador': 'ec',
+  'גאנה': 'gh', 'ghana': 'gh', 'ניגריה': 'ng', 'nigeria': 'ng',
+  'סעודיה': 'sa', 'saudi arabia': 'sa', 'קטאר': 'qa', 'qatar': 'qa',
+  'סקוטלנד': 'gb-sct', 'scotland': 'gb-sct', 'ולס': 'gb-wls', 'wales': 'gb-wls',
+};
+function isoFor(name) {
+  const raw = String(name || '').trim();
+  return FLAG_ISO[raw] || FLAG_ISO[raw.toLowerCase()] || null;
+}
+// מחזיר HTML של דגל (תמונה אם מזוהה, אחרת כדורגל)
+function flagFor(name) {
+  const iso = isoFor(name);
+  if (iso) return `<img class="flag-img" src="https://flagcdn.com/${iso}.svg" alt="" loading="lazy" />`;
+  return '<span class="flag-ball">⚽</span>';
+}
+
+// קונפטי חגיגי (לבינגו / זכייה)
+function confetti(burst = 70) {
+  const layer = $('#confetti');
+  if (!layer) return;
+  const colors = ['#FFC72C', '#B31942', '#ffffff', '#2e86e6', '#7dffc0'];
+  for (let i = 0; i < burst; i++) {
+    const p = document.createElement('div');
+    p.className = 'confetti-piece';
+    p.style.left = Math.random() * 100 + 'vw';
+    p.style.background = colors[i % colors.length];
+    p.style.animationDuration = (1.6 + Math.random() * 1.4) + 's';
+    p.style.animationDelay = Math.random() * 0.4 + 's';
+    p.style.transform = `rotate(${Math.random() * 360}deg)`;
+    layer.appendChild(p);
+    setTimeout(() => p.remove(), 3600);
+  }
+}
+
 // ===== אימות =====
 $('#btn-send-code').onclick = async () => {
   const email = $('#email').value.trim();
@@ -93,6 +142,7 @@ async function logout() {
   localStorage.removeItem('token');
   renderUserbox();
   $('#app').classList.add('hide');
+  $('#nav').classList.add('hide');
   $('#auth').classList.remove('hide');
   $('#step-code').classList.add('hide');
   $('#step-email').classList.remove('hide');
@@ -102,8 +152,8 @@ async function logout() {
 function renderUserbox() {
   const box = $('#userbox');
   if (state.user) {
-    box.innerHTML = `<span>${esc(state.user.displayName || state.user.email)}</span>
-      <button class="btn ghost small" id="btn-logout">התנתקות</button>`;
+    box.innerHTML = `<span class="uname">${esc(state.user.displayName || state.user.email.split('@')[0])}</span>
+      <button class="btn ghost small" id="btn-logout">יציאה</button>`;
     $('#btn-logout').onclick = logout;
   } else {
     box.innerHTML = '';
@@ -114,6 +164,7 @@ async function afterLogin() {
   renderUserbox();
   $('#auth').classList.add('hide');
   $('#app').classList.remove('hide');
+  $('#nav').classList.remove('hide');
   if (state.user.isAdmin) $('#tab-admin').classList.remove('hide');
   else $('#tab-admin').classList.add('hide');
   if (!state.config) state.config = await api('/config');
@@ -196,23 +247,23 @@ function matchCard(m) {
     resultLine = `<div class="result-line muted">הניחוש שלך נשמר ✓ · עולה: <b>${esc(p.winner === 'A' ? m.teamA : m.teamB)}</b> · תוצאה ${p.scoreA}–${p.scoreB}</div>`;
   }
 
-  return `<div class="match" data-id="${m.id}">
+  return `<div class="match ${m.resultEntered ? 'done' : ''}" data-id="${m.id}">
     <div class="head">
-      <span class="kickoff">${esc(fmtDate(m.kickoff))}</span>
+      <span class="kickoff">🕑 ${esc(fmtDate(m.kickoff))}</span>
       ${badge}
     </div>
     <div class="teams">
-      <button class="team-btn ${selA}" data-pick="A" ${dis}>${esc(m.teamA)}<span class="adv">עולה הלאה</span></button>
-      <span class="vs muted">נגד</span>
-      <button class="team-btn ${selB}" data-pick="B" ${dis}>${esc(m.teamB)}<span class="adv">עולה הלאה</span></button>
+      <button class="team-btn ${selA}" data-pick="A" ${dis}><span class="flag">${flagFor(m.teamA)}</span>${esc(m.teamA)}<span class="adv">עולה הלאה ↑</span></button>
+      <span class="vs">VS</span>
+      <button class="team-btn ${selB}" data-pick="B" ${dis}><span class="flag">${flagFor(m.teamB)}</span>${esc(m.teamB)}<span class="adv">עולה הלאה ↑</span></button>
     </div>
     <div class="score-label">תוצאת 90 הדקות</div>
     <div class="score-row">
-      <input type="number" min="0" max="30" class="sa" value="${scoreA}" ${dis} />
+      <input type="number" min="0" max="30" inputmode="numeric" class="sa" value="${scoreA}" ${dis} />
       <span class="x">:</span>
-      <input type="number" min="0" max="30" class="sb" value="${scoreB}" ${dis} />
+      <input type="number" min="0" max="30" inputmode="numeric" class="sb" value="${scoreB}" ${dis} />
     </div>
-    ${m.locked ? '' : `<div class="save-row"><button class="btn small save-btn">שמירת ניחוש</button><span class="save-status muted tiny"></span></div>`}
+    ${m.locked ? '' : `<div class="save-row"><button class="btn small save-btn">💾 שמירת ניחוש</button><span class="save-status muted tiny"></span></div>`}
     ${resultLine}
   </div>`;
 }
@@ -239,9 +290,10 @@ function bindMatchCards(matches) {
       if (scoreA === '' || scoreB === '') { status.textContent = 'הזינו תוצאה'; status.style.color = 'var(--danger)'; return; }
       try {
         await api('/predictions', { method: 'POST', body: { matchId: id, winner: pick, scoreA: Number(scoreA), scoreB: Number(scoreB) } });
-        status.textContent = '✓ נשמר!'; status.style.color = 'var(--accent)';
+        status.textContent = '✓ נשמר!'; status.style.color = 'var(--gold)';
+        confetti(26);
       } catch (e) {
-        status.textContent = e.message; status.style.color = 'var(--danger)';
+        status.textContent = e.message; status.style.color = 'var(--red-bright)';
       }
     };
   });
@@ -257,13 +309,31 @@ async function renderLeaderboard() {
     return;
   }
   const myName = state.user.displayName || state.user.email.split('@')[0];
-  let rows = data.leaderboard.map((r) => {
+  const lb = data.leaderboard;
+  const initials = (n) => esc(String(n).trim().slice(0, 2).toUpperCase());
+
+  // פודיום ל-3 הראשונים (סדר תצוגה: 2,1,3)
+  let podium = '';
+  if (lb.length >= 2) {
+    const top = lb.slice(0, 3);
+    const arrange = [top[1], top[0], top[2]].filter(Boolean);
+    const medals = { 1: '🥇', 2: '🥈', 3: '🥉' };
+    podium = '<div class="podium">' + arrange.map((r) =>
+      `<div class="pod p${r.rank}">
+        <div class="medal">${medals[r.rank] || ''}</div>
+        <div class="av">${initials(r.name)}</div>
+        <div class="nm">${esc(r.name)}</div>
+        <div class="pt">${r.total} נק'</div>
+        <div class="bar"></div>
+      </div>`).join('') + '</div>';
+  }
+
+  let rows = lb.map((r) => {
     const isMe = r.name === myName;
-    const medal = r.rank <= 3 ? `medal-${r.rank}` : '';
-    const trophy = r.rank === 1 ? '🥇' : r.rank === 2 ? '🥈' : r.rank === 3 ? '🥉' : '';
-    return `<tr class="${medal} ${isMe ? 'me' : ''}">
-      <td class="rank">${trophy || r.rank}</td>
-      <td>${esc(r.name)}</td>
+    const trophy = r.rank === 1 ? '🥇' : r.rank === 2 ? '🥈' : r.rank === 3 ? '🥉' : r.rank;
+    return `<tr class="${isMe ? 'me' : ''}">
+      <td class="rank">${trophy}</td>
+      <td>${esc(r.name)}${isMe ? ' <span class="tiny" style="color:var(--gold)">(אתה)</span>' : ''}</td>
       <td class="muted tiny">${r.hits} פגיעות</td>
       <td class="total">${r.total}</td>
     </tr>`;
@@ -272,8 +342,9 @@ async function renderLeaderboard() {
   root.innerHTML = `<div class="card">
     <h2>🏆 טבלת הדירוג</h2>
     <p class="sub">סך הנקודות מתעדכן עם כל תוצאה שמוזנת.</p>
+    ${podium}
     <table>
-      <thead><tr><th>#</th><th>שחקן/ית</th><th></th><th>נקודות</th></tr></thead>
+      <thead><tr><th>#</th><th>שחקן/ית</th><th></th><th>נק'</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>
@@ -285,6 +356,10 @@ async function renderLeaderboard() {
       <button class="btn" id="save-name" style="flex:0 0 auto">שמירה</button>
     </div>
   </div>`;
+
+  // חגיגה אם אתה במקום הראשון עם נקודות
+  const leader = lb[0];
+  if (leader && leader.name === myName && leader.total > 0) confetti(90);
 
   $('#save-name').onclick = async () => {
     const displayName = $('#dispname').value.trim();
@@ -338,15 +413,29 @@ async function renderAdmin() {
 
   const stageOpts = state.config.stages.map((s) => `<option value="${s.key}">${esc(s.label)}</option>`).join('');
 
-  // טופס הוספת משחק
+  // סטטוס חיבור ל-API
+  let prov = { configured: false, pollMinutes: 0 };
+  try { prov = await api('/admin/provider/status'); } catch {}
+
   let html = `<div class="card">
+    <h2>🔄 עדכון תוצאות אוטומטי</h2>
+    ${prov.configured
+      ? `<p class="sub">ה-API מחובר ✓ — תוצאות מתעדכנות אוטומטית כל ${prov.pollMinutes} דקות עבור משחקים שמקושרים למזהה. אפשר גם לסנכרן ידנית עכשיו.</p>
+         <div class="row"><button class="btn blue" id="btn-sync">⚡ סנכרן תוצאות עכשיו</button>
+         <button class="btn ghost" id="btn-fixtures">📋 הצג מזהי משחקים מה-API</button></div>
+         <div id="sync-status"></div><div id="fixtures-box"></div>`
+      : `<div class="msg info">ה-API לא מחובר. העדכון האוטומטי כבוי וההזנה ידנית. כדי להפעיל — הגדירו <b>FOOTBALL_API_KEY</b> (ראו DEPLOY.md), וקשרו כל משחק ל"מזהה API".</div>`}
+  </div>`;
+
+  // טופס הוספת משחק
+  html += `<div class="card">
     <h2>➕ הוספת משחק</h2>
     <p class="sub">הזינו את שתי הנבחרות, השלב, ומועד הפתיחה (אחרי המועד הניחושים ננעלים אוטומטית).</p>
     <div class="row"><div><label>שלב</label><select id="new-stage">${stageOpts}</select></div>
     <div><label>מועד פתיחה (אופציונלי)</label><input type="datetime-local" id="new-kickoff" /></div></div>
-    <div style="height:10px"></div>
     <div class="row"><div><label>נבחרת א'</label><input type="text" id="new-a" placeholder="לדוגמה: ארגנטינה" /></div>
     <div><label>נבחרת ב'</label><input type="text" id="new-b" placeholder="לדוגמה: צרפת" /></div></div>
+    ${prov.configured ? `<div class="row"><div><label>מזהה משחק ב-API (אופציונלי)</label><input type="text" id="new-fix" inputmode="numeric" placeholder="לעדכון אוטומטי" /></div></div>` : ''}
     <div style="height:12px"></div>
     <button class="btn" id="btn-add-match">הוספת משחק</button>
     <span id="add-status" class="tiny" style="margin-right:10px"></span>
@@ -357,7 +446,7 @@ async function renderAdmin() {
   if (!data.matches.length) {
     html += '<p class="muted center">אין עדיין משחקים. הוסיפו את הראשון למעלה.</p>';
   } else {
-    for (const m of data.matches) html += adminMatchRow(m);
+    for (const m of data.matches) html += adminMatchRow(m, prov.configured);
   }
   html += `</div>`;
   root.innerHTML = html;
@@ -369,32 +458,67 @@ async function renderAdmin() {
       teamB: $('#new-b').value.trim(),
       kickoff: $('#new-kickoff').value || null,
     };
+    if ($('#new-fix')) body.providerFixtureId = $('#new-fix').value.trim();
     const st = $('#add-status');
-    if (!body.teamA || !body.teamB) { st.textContent = 'נא להזין שתי נבחרות'; st.style.color = 'var(--danger)'; return; }
+    if (!body.teamA || !body.teamB) { st.textContent = 'נא להזין שתי נבחרות'; st.style.color = 'var(--red-bright)'; return; }
     try {
       await api('/admin/matches', { method: 'POST', body });
       renderAdmin();
-    } catch (e) { st.textContent = e.message; st.style.color = 'var(--danger)'; }
+    } catch (e) { st.textContent = e.message; st.style.color = 'var(--red-bright)'; }
+  };
+
+  // סנכרון ידני
+  const syncBtn = $('#btn-sync');
+  if (syncBtn) syncBtn.onclick = async () => {
+    const box = $('#sync-status');
+    box.innerHTML = '<div class="msg info">מסנכרן…</div>';
+    try {
+      const r = await api('/admin/sync', { method: 'POST' });
+      box.innerHTML = `<div class="msg ok">הסתיים: נבדקו ${r.checked} משחקים, עודכנו ${r.updated}.</div>`;
+      if (r.updated) { confetti(40); setTimeout(renderAdmin, 1200); }
+    } catch (e) { box.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+  };
+
+  // הצגת מזהי משחקים מה-API
+  const fxBtn = $('#btn-fixtures');
+  if (fxBtn) fxBtn.onclick = async () => {
+    const box = $('#fixtures-box');
+    box.innerHTML = '<div class="msg info">טוען מה-API…</div>';
+    try {
+      const r = await api('/admin/provider/fixtures');
+      if (!r.fixtures.length) { box.innerHTML = '<div class="msg info">לא נמצאו משחקים (ייתכן שהמונדיאל עוד לא במאגר).</div>'; return; }
+      const rows = r.fixtures.slice(0, 80).map((f) =>
+        `<tr><td class="tiny" style="color:var(--gold)">${f.fixtureId}</td><td class="tiny">${esc(f.home)} – ${esc(f.away)}</td><td class="tiny muted">${esc(f.round || '')}</td></tr>`).join('');
+      box.innerHTML = `<p class="tiny muted" style="margin-top:10px">העתיקו את ה"מזהה" אל שדה "מזהה משחק ב-API" של המשחק המתאים:</p>
+        <table><thead><tr><th>מזהה</th><th>משחק</th><th>שלב</th></tr></thead><tbody>${rows}</tbody></table>`;
+    } catch (e) { box.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   };
 
   bindAdminRows(data.matches);
 }
 
-function adminMatchRow(m) {
+function adminMatchRow(m, provConfigured) {
   const stageLabel = state.config.stages.find((s) => s.key === m.stage)?.label || m.stage;
   const wA = m.actualWinner === 'A' ? 'sel' : '';
   const wB = m.actualWinner === 'B' ? 'sel' : '';
+  const fixField = provConfigured ? `
+    <div class="row" style="margin-bottom:10px">
+      <div><label>מזהה משחק ב-API (לעדכון אוטומטי)</label>
+      <input type="text" class="r-fix" inputmode="numeric" value="${esc(m.providerFixtureId || '')}" placeholder="ריק = ידני בלבד" /></div>
+      <div style="flex:0 0 auto;display:flex;align-items:flex-end"><button class="btn small ghost r-fix-save">קשר</button></div>
+    </div>` : '';
   return `<div class="match admin-row" data-id="${m.id}">
     <div class="head">
-      <b>${esc(m.teamA)} נגד ${esc(m.teamB)}</b>
+      <b>${flagFor(m.teamA)} ${esc(m.teamA)} נגד ${esc(m.teamB)} ${flagFor(m.teamB)}</b>
       <span class="badge ${m.resultEntered ? 'done' : 'open'}">${esc(stageLabel)}${m.resultEntered ? ' · הוזנה תוצאה' : ''}</span>
     </div>
-    <div class="tiny muted">${esc(fmtDate(m.kickoff))}</div>
+    <div class="tiny muted">🕑 ${esc(fmtDate(m.kickoff))}${m.providerFixtureId ? ` · 🔗 API #${esc(m.providerFixtureId)}` : ''}</div>
     <hr class="sep" />
+    ${fixField}
     <label>תוצאה רשמית (90 דקות) ומי עלה הלאה:</label>
     <div class="teams" style="margin-bottom:8px">
       <button class="team-btn r-win ${wA}" data-win="A">${esc(m.teamA)}<span class="adv">עלה/תה</span></button>
-      <span class="vs muted">נגד</span>
+      <span class="vs">נגד</span>
       <button class="team-btn r-win ${wB}" data-win="B">${esc(m.teamB)}<span class="adv">עלה/תה</span></button>
     </div>
     <div class="score-row">
@@ -425,6 +549,16 @@ function bindAdminRows(matches) {
     });
 
     const status = el.querySelector('.r-status');
+
+    const fixSave = el.querySelector('.r-fix-save');
+    if (fixSave) fixSave.onclick = async () => {
+      const val = el.querySelector('.r-fix').value.trim();
+      try {
+        await api(`/admin/matches/${id}`, { method: 'PUT', body: { providerFixtureId: val } });
+        fixSave.textContent = '✓';
+        setTimeout(() => { fixSave.textContent = 'קשר'; }, 1500);
+      } catch (e) { status.textContent = e.message; status.style.color = 'var(--red-bright)'; }
+    };
 
     el.querySelector('.r-save').onclick = async () => {
       const scoreA = el.querySelector('.r-sa').value;

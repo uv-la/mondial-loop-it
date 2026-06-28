@@ -60,3 +60,12 @@ CREATE TABLE IF NOT EXISTS predictions (
   FOREIGN KEY (match_id) REFERENCES matches(id)
 );
 `);
+
+// --- מיגרציות בטוחות: הוספת עמודות לחיבור ל-API כדורגל ---
+const matchCols = db.prepare("PRAGMA table_info(matches)").all().map((c) => c.name);
+if (!matchCols.includes('provider_fixture_id')) {
+  db.exec("ALTER TABLE matches ADD COLUMN provider_fixture_id TEXT"); // מזהה המשחק ב-API
+}
+if (!matchCols.includes('provider_home_is_a')) {
+  db.exec("ALTER TABLE matches ADD COLUMN provider_home_is_a INTEGER NOT NULL DEFAULT 1"); // האם 'home' ב-API = נבחרת א'
+}
