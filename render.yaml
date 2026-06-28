@@ -4,18 +4,19 @@ services:
     name: mondial-loop-it
     runtime: node
     region: frankfurt        # קרוב לישראל = מהיר (כמו שאר השירותים שלך)
-    plan: free               # ⚠️ חינם = אין דיסק קבוע, מסד הנתונים מתאפס בכל פריסה/רדימה. לשמירת נתונים שדרגו ל-starter והוסיפו בלוק disk.
+    plan: starter            # נדרש לדיסק קבוע — שומר את הנתונים (משתמשים, ניחושים, דירוג) בין פריסות.
     buildCommand: npm install
     startCommand: npm start
-    domains:
-      - mondial.loop-it.org  # תת-הדומיין שיחובר לאתר (צריך גם רשומת DNS — ראו DEPLOY.md)
+    # (להוספת תת-דומיין בעתיד: domains: [mondial.loop-it.org] + רשומת DNS — ראו DEPLOY-loop-it.md)
     envVars:
       - key: NODE_VERSION
         value: "22"
       # שם המשתמש (כינוי) שיהיה אדמין. אם ריק — המשתמש הראשון שנרשם הוא האדמין.
       - key: ADMIN_USERS
         sync: false
-      # (בתוכנית חינם אין DB_PATH — מסד הנתונים נשמר מקומית ב-./mondial.db ומתאפס בכל פריסה)
+      # מסד הנתונים נשמר על הדיסק הקבוע (מוגדר למטה) כדי שלא יימחק בין פריסות:
+      - key: DB_PATH
+        value: /data/mondial.db
       # עדכון משחקים+תוצאות אוטומטי (API-Football). הזינו את המפתח בלוח הבקרה:
       - key: FOOTBALL_API_KEY
         sync: false
@@ -25,3 +26,7 @@ services:
         value: "2026"
       - key: POLL_MINUTES
         value: "120"         # משיכה אוטומטית כל שעתיים
+    disk:
+      name: mondial-data
+      mountPath: /data       # כאן נשמר mondial.db — נתונים קבועים
+      sizeGB: 1
