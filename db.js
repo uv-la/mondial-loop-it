@@ -20,6 +20,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS matches (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   stage         TEXT NOT NULL,

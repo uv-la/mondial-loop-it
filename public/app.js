@@ -227,7 +227,7 @@ async function renderMatches() {
   const groups = {};
   for (const m of data.matches) (groups[m.stage] ||= []).push(m);
 
-  let html = '';
+  let html = deadlineBanner();
   for (const stageKey of order) {
     const list = groups[stageKey];
     if (!list || !list.length) continue;
@@ -238,6 +238,15 @@ async function renderMatches() {
   }
   root.innerHTML = html;
   bindMatchCards(data.matches);
+}
+
+// באנר דדליין — מוצג כשהוגדר מועד סגירה
+function deadlineBanner() {
+  const dl = state.config.deadline;
+  if (!dl) return '';
+  const passed = new Date(dl).getTime() <= Date.now();
+  if (passed) return `<div class="msg err" style="text-align:center">🔒 ההרשמה והניחושים נסגרו (${esc(fmtDate(dl))})</div>`;
+  return `<div class="msg info" style="text-align:center">⏰ אפשר להירשם ולנחש עד <b>${esc(fmtDate(dl))}</b> (שעון ישראל)</div>`;
 }
 
 function matchCard(m) {
@@ -430,7 +439,28 @@ async function renderAdmin() {
   let prov = { configured: false, pollMinutes: 0 };
   try { prov = await api('/admin/provider/status'); } catch {}
 
+  // אפשרויות שעה בקפיצות של חצי שעה
+  let timeOpts = '<option value="">שעה</option>';
+  for (let h = 0; h < 24; h++) for (const m of [0, 30]) {
+    const t = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+    timeOpts += `<option value="${t}">${t}</option>`;
+  }
+
+  // כרטיס דדליין הרשמה+ניחושים
+  const dl = state.config.deadline;
   let html = `<div class="card">
+    <h2>⏰ מועד סגירה (הרשמה וניחושים)</h2>
+    <p class="sub">${dl ? 'נקבע: <b>' + esc(fmtDate(dl)) + '</b> (שעון ישראל). אחרי המועד אי אפשר להירשם או לנחש.' : 'לא נקבע מועד סגירה. אפשר לקבוע מועד אחיד לכל המשחקים.'}</p>
+    <div class="row">
+      <div><input type="date" id="dl-date" /></div>
+      <div><select id="dl-time">${timeOpts}</select></div>
+      <div style="flex:0 0 auto;display:flex;align-items:flex-end"><button class="btn small" id="btn-set-deadline">קבע מועד</button></div>
+    </div>
+    ${dl ? '<button class="btn small ghost danger" id="btn-clear-deadline" style="margin-top:10px">בטל מועד סגירה</button>' : ''}
+    <div id="dl-status" class="tiny" style="margin-top:8px"></div>
+  </div>`;
+
+  html += `<div class="card">
     <h2>🔄 עדכון תוצאות אוטומטי</h2>
     ${prov.configured
       ? `<p class="sub">ה-API מחובר ✓ — <b>המשחקים והתוצאות נמשכים אוטומטית</b> מלוח המונדיאל כל ${Math.round(prov.pollMinutes / 60 * 10) / 10} שעות (${prov.pollMinutes} דק'). אפשר גם למשוך עכשיו ידנית.</p>
@@ -439,13 +469,6 @@ async function renderAdmin() {
          <div id="sync-status"></div><div id="fixtures-box"></div>`
       : `<div class="msg info">ה-API לא מחובר — אין משיכה אוטומטית. כדי להפעיל הגדירו <b>FOOTBALL_API_KEY</b> ב-Render (ראו DEPLOY-loop-it.md). אפשר להזין משחקים ותוצאות ידנית בינתיים.</div>`}
   </div>`;
-
-  // אפשרויות שעה בקפיצות של חצי שעה
-  let timeOpts = '<option value="">שעה</option>';
-  for (let h = 0; h < 24; h++) for (const m of [0, 30]) {
-    const t = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-    timeOpts += `<option value="${t}">${t}</option>`;
-  }
 
   // טופס הוספת משחק
   html += `<div class="card">
@@ -476,6 +499,27 @@ async function renderAdmin() {
   }
   html += `</div>`;
   root.innerHTML = html;
+
+  // --- דדליין הרשמה/ניחושים ---
+  $('#btn-set-deadline').onclick = async () => {
+    const st = $('#dl-status');
+    const dStr = $('#dl-date').value, tStr = $('#dl-time').value;
+    if (!dStr || !tStr) { st.innerHTML = '<span style="color:var(--red-bright)">בחרו תאריך ושעה</span>'; return; }
+    try {
+      const iso = israelLocalToISO(dStr, tStr);
+      const r = await api('/admin/deadline', { method: 'POST', body: { deadline: iso } });
+      state.config.deadline = r.deadline;
+      state.config.registrationOpen = !r.deadline || new Date(r.deadline).getTime() > Date.now();
+      st.innerHTML = `<span style="color:var(--gold)">✓ נקבע: ${esc(fmtDate(r.deadline))}</span>`;
+      setTimeout(renderAdmin, 900);
+    } catch (e) { st.innerHTML = `<span style="color:var(--red-bright)">${esc(e.message)}</span>`; }
+  };
+  const clrDl = $('#btn-clear-deadline');
+  if (clrDl) clrDl.onclick = async () => {
+    await api('/admin/deadline', { method: 'POST', body: { deadline: '' } });
+    state.config.deadline = null; state.config.registrationOpen = true;
+    renderAdmin();
+  };
 
   // מחזיר את מועד הפתיחה (ISO) מהשדות, או null. מציג תצוגה מאומתת.
   function readKickoff(showFeedback) {
@@ -680,8 +724,23 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 }
 
+// מציג באנר דדליין במסך ההתחברות
+function renderAuthDeadline() {
+  const el = document.getElementById('auth-deadline');
+  if (!el || !state.config) return;
+  const dl = state.config.deadline;
+  if (!dl) { el.innerHTML = ''; return; }
+  if (!state.config.registrationOpen) {
+    el.innerHTML = `<div class="msg err">🔒 ההרשמה נסגרה (${esc(fmtDate(dl))}). אפשר עדיין להיכנס עם חשבון קיים.</div>`;
+  } else {
+    el.innerHTML = `<div class="msg info">⏰ אפשר להירשם ולנחש עד <b>${esc(fmtDate(dl))}</b> (שעון ישראל)</div>`;
+  }
+}
+
 // ===== אתחול =====
 (async function init() {
+  try { state.config = await api('/config'); } catch {}
+  renderAuthDeadline();
   if (state.token) {
     try {
       const r = await api('/me');
