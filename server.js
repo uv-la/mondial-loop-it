@@ -14,8 +14,28 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+app.set('trust proxy', 1); // מאחורי הפרוקסי של Render — לקבל IP אמיתי
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ---------- הגבלת קצב (מניעת ניחוש סיסמה / ספאם הרשמות) ----------
+const rateBuckets = new Map();
+function rateLimit({ windowMs, max }) {
+  return (req, res, next) => {
+    const now = Date.now();
+    const k = req.ip || 'unknown';
+    let b = rateBuckets.get(k);
+    if (!b || b.resetAt < now) { b = { count: 0, resetAt: now + windowMs }; rateBuckets.set(k, b); }
+    b.count++;
+    if (rateBuckets.size > 5000) { // ניקוי בסיסי
+      for (const [key, val] of rateBuckets) if (val.resetAt < now) rateBuckets.delete(key);
+    }
+    if (b.count > max) return res.status(429).json({ error: 'יותר מדי ניסיונות. נסו שוב בעוד כמה דקות.' });
+    next();
+  };
+}
+const loginLimiter = rateLimit({ windowMs: 5 * 60000, max: 12 });
+const registerLimiter = rateLimit({ windowMs: 10 * 60000, max: 15 });
 
 // ---------- עזרי זמן ----------
 const nowIso = () => new Date().toISOString();
@@ -100,7 +120,7 @@ const USERNAME_RE = /^[֐-׿a-zA-Z0-9_\- ]{2,20}$/; // עברית/אנגלית/�
 // =================== נתיבי אימות (Auth) ===================
 
 // הרשמה: שם משתמש (כינוי) + סיסמה
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', registerLimiter, (req, res) => {
   if (deadlinePassed()) {
     return res.status(403).json({ error: 'ההרשמה נסגרה (חלף מועד הסגירה)' });
   }
@@ -122,7 +142,7 @@ app.post('/api/auth/register', (req, res) => {
 });
 
 // כניסה: שם משתמש + סיסמה
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', loginLimiter, (req, res) => {
   const username = String(req.body.username || '').trim();
   const password = String(req.body.password || '');
   const user = db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE').get(username);
@@ -143,6 +163,22 @@ app.get('/api/me', requireAuth, (req, res) => {
   res.json({ user: publicUser(req.user) });
 });
 
+// שינוי סיסמה (דורש את הסיסמה הנוכחית)
+app.post('/api/me/password', requireAuth, (req, res) => {
+  const cur = String(req.body.currentPassword || '');
+  const nw = String(req.body.newPassword || '');
+  if (!verifyPassword(cur, req.user.password_hash)) {
+    return res.status(401).json({ error: 'הסיסמה הנוכחית שגויה' });
+  }
+  if (nw.length < 6) return res.status(400).json({ error: 'הסיסמה החדשה חייבת לפחות 6 תווים' });
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(nw), req.user.id);
+  // ניתוק שאר ה-Sessions של המשתמש (השאר את הנוכחי)
+  const h = req.headers.authorization || '';
+  const token = h.startsWith('Bearer ') ? h.slice(7) : null;
+  db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, token);
+  res.json({ ok: true });
+});
+
 // =================== מטא-נתונים ===================
 app.get('/api/config', (req, res) => {
   res.json({
@@ -152,8 +188,8 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-// אבחון פריסה — לבדוק אם הדיסק הקבוע מחובר ולאן ה-DB נכתב
-app.get('/api/health', (req, res) => {
+// אבחון פריסה (אדמין בלבד) — לבדוק אם הדיסק הקבוע מחובר ולאן ה-DB נכתב
+app.get('/api/health', requireAdmin, (req, res) => {
   const abs = path.resolve(DB_PATH);
   const dir = path.dirname(abs);
   let dirExists = false, dirWritable = false;

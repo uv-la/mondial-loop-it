@@ -459,7 +459,31 @@ async function renderLeaderboard() {
       <thead><tr><th>#</th><th>שחקן/ית</th><th></th><th>נק'</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
+  </div>
+  <div class="card">
+    <h2>🔒 שינוי סיסמה</h2>
+    <p class="sub">מומלץ לבחור סיסמה חזקה (לפחות 6 תווים).</p>
+    <label>סיסמה נוכחית</label>
+    <input type="password" id="cur-pass" autocomplete="current-password" />
+    <div style="height:8px"></div>
+    <label>סיסמה חדשה</label>
+    <input type="password" id="new-pass" autocomplete="new-password" />
+    <div style="height:12px"></div>
+    <button class="btn" id="btn-change-pass">עדכון סיסמה</button>
+    <span id="pass-status" class="tiny" style="margin-right:10px"></span>
   </div>`;
+
+  $('#btn-change-pass').onclick = async () => {
+    const st = $('#pass-status');
+    const currentPassword = $('#cur-pass').value;
+    const newPassword = $('#new-pass').value;
+    if (!currentPassword || !newPassword) { st.textContent = 'מלאו את שני השדות'; st.style.color = 'var(--red-bright)'; return; }
+    try {
+      await api('/me/password', { method: 'POST', body: { currentPassword, newPassword } });
+      st.textContent = '✓ הסיסמה עודכנה!'; st.style.color = 'var(--gold)';
+      $('#cur-pass').value = ''; $('#new-pass').value = '';
+    } catch (e) { st.textContent = e.message; st.style.color = 'var(--red-bright)'; }
+  };
 
   // חגיגה אם אתה במקום הראשון עם נקודות
   const leader = lb[0];
