@@ -80,6 +80,13 @@ const FLAG_ISO = {
   'גאנה': 'gh', 'ghana': 'gh', 'ניגריה': 'ng', 'nigeria': 'ng',
   'סעודיה': 'sa', 'saudi arabia': 'sa', 'קטאר': 'qa', 'qatar': 'qa',
   'סקוטלנד': 'gb-sct', 'scotland': 'gb-sct', 'ולס': 'gb-wls', 'wales': 'gb-wls',
+  'דרום אפריקה': 'za', 'south africa': 'za', 'חוף השנהב': 'ci', 'ivory coast': 'ci',
+  'נורבגיה': 'no', 'norway': 'no', 'פרגוואי': 'py', 'paraguay': 'py',
+  'אוסטריה': 'at', 'austria': 'at', "אלג'יריה": 'dz', 'algeria': 'dz',
+  'כף ורדה': 'cv', 'cape verde': 'cv', 'שוודיה': 'se', 'sweden': 'se',
+  'הרפובליקה הדמוקרטית': 'cd', 'dr congo': 'cd', 'קונגו': 'cd',
+  'בוסניה והרצגובינה': 'ba', 'בוסניה': 'ba', 'bosnia': 'ba',
+  'מצרים': 'eg', 'egypt': 'eg',
 };
 function isoFor(name) {
   const raw = String(name || '').trim();
