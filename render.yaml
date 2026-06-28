@@ -1,11 +1,13 @@
 # Blueprint לפריסה ב-Render. ב-Render בוחרים "New +" → "Blueprint" ומצביעים על הריפו.
 services:
   - type: web
-    name: mondial-2026
+    name: mondial-loop-it
     runtime: node
     plan: starter            # נדרש לדיסק קבוע. לתוכנית חינם הסירו את 'plan' ואת 'disk' (אך הנתונים יתאפסו בכל פריסה).
     buildCommand: npm install
     startCommand: npm start
+    domains:
+      - mondial.loop-it.org  # תת-הדומיין שיחובר לאתר (צריך גם רשומת DNS — ראו DEPLOY.md)
     envVars:
       - key: NODE_VERSION
         value: "22"
@@ -25,6 +27,9 @@ services:
       - key: SMTP_PASS
         sync: false          # תזינו בלוח הבקרה (App Password — סוד!)
       - key: MAIL_FROM
+        sync: false
+      # עדכון תוצאות אוטומטי (אופציונלי) — הזינו בלוח הבקרה אם רוצים:
+      - key: FOOTBALL_API_KEY
         sync: false
     disk:
       name: mondial-data
