@@ -3,6 +3,7 @@ services:
   - type: web
     name: mondial-loop-it
     runtime: node
+    region: frankfurt        # קרוב לישראל = מהיר (כמו שאר השירותים שלך)
     plan: starter            # נדרש לדיסק קבוע. לתוכנית חינם הסירו את 'plan' ואת 'disk' (אך הנתונים יתאפסו בכל פריסה).
     buildCommand: npm install
     startCommand: npm start
