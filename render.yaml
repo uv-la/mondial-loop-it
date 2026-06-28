@@ -28,6 +28,12 @@ services:
         sync: false          # תזינו בלוח הבקרה (App Password — סוד!)
       - key: MAIL_FROM
         sync: false
-      # עדכון תוצאות אוטומטי (אופציונלי) — הזינו בלוח הבקרה אם רוצים:
+      # עדכון משחקים+תוצאות אוטומטי (API-Football). הזינו את המפתח בלוח הבקרה:
       - key: FOOTBALL_API_KEY
         sync: false
+      - key: WC_LEAGUE_ID
+        value: "1"            # מזהה המונדיאל ב-API-Football
+      - key: WC_SEASON
+        value: "2026"
+      - key: POLL_MINUTES
+        value: "120"         # משיכה אוטומטית כל שעתיים

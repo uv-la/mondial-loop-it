@@ -83,3 +83,41 @@ export async function listWorldCupFixtures() {
     away: f.teams?.away?.name,
   }));
 }
+
+// ממפה את שם הסבב מה-API לשלב שלנו. מחזיר null לסבבים שלא רלוונטיים
+// (בית, שלב 32, מקום שלישי) — המשחק מתחיל משמינית הגמר.
+export function roundToStage(round) {
+  const r = String(round || '').toLowerCase();
+  if (r.includes('round of 16')) return 'round16';
+  if (r.includes('quarter')) return 'quarter';
+  if (r.includes('semi')) return 'semi';
+  if (r.includes('3rd') || r.includes('third')) return null; // משחק על מקום שלישי — מדלגים
+  if (r.includes('final')) return 'final';
+  return null;
+}
+
+// שולף את כל משחקי הנוקאאוט (שמינית→גמר) מנורמלים, כולל זוגות הנבחרות,
+// המועד, והתוצאה אם הסתיים. משמש לייבוא אוטומטי למערכת.
+export async function fetchKnockoutFixtures() {
+  const resp = await apiGet(`fixtures?league=${WC_LEAGUE_ID}&season=${WC_SEASON}`);
+  const out = [];
+  for (const f of resp) {
+    const stage = roundToStage(f.league?.round);
+    if (!stage) continue; // רק שמינית, רבע, חצי, גמר
+    const n = normalizeFixture(f, true); // home = נבחרת א'
+    out.push({
+      fixtureId: f.fixture?.id,
+      stage,
+      round: f.league?.round,
+      teamA: f.teams?.home?.name,
+      teamB: f.teams?.away?.name,
+      kickoff: f.fixture?.date,
+      finished: n.finished,
+      decided: n.decided,
+      scoreA: n.scoreA,
+      scoreB: n.scoreB,
+      winner: n.winner,
+    });
+  }
+  return out;
+}

@@ -423,11 +423,11 @@ async function renderAdmin() {
   let html = `<div class="card">
     <h2>🔄 עדכון תוצאות אוטומטי</h2>
     ${prov.configured
-      ? `<p class="sub">ה-API מחובר ✓ — תוצאות מתעדכנות אוטומטית כל ${prov.pollMinutes} דקות עבור משחקים שמקושרים למזהה. אפשר גם לסנכרן ידנית עכשיו.</p>
-         <div class="row"><button class="btn blue" id="btn-sync">⚡ סנכרן תוצאות עכשיו</button>
-         <button class="btn ghost" id="btn-fixtures">📋 הצג מזהי משחקים מה-API</button></div>
+      ? `<p class="sub">ה-API מחובר ✓ — <b>המשחקים והתוצאות נמשכים אוטומטית</b> מלוח המונדיאל כל ${Math.round(prov.pollMinutes / 60 * 10) / 10} שעות (${prov.pollMinutes} דק'). אפשר גם למשוך עכשיו ידנית.</p>
+         <div class="row"><button class="btn blue" id="btn-sync">⚡ משוך משחקים ותוצאות עכשיו</button>
+         <button class="btn ghost" id="btn-fixtures">📋 הצג משחקים מה-API</button></div>
          <div id="sync-status"></div><div id="fixtures-box"></div>`
-      : `<div class="msg info">ה-API לא מחובר. העדכון האוטומטי כבוי וההזנה ידנית. כדי להפעיל — הגדירו <b>FOOTBALL_API_KEY</b> (ראו DEPLOY.md), וקשרו כל משחק ל"מזהה API".</div>`}
+      : `<div class="msg info">ה-API לא מחובר — אין משיכה אוטומטית. כדי להפעיל הגדירו <b>FOOTBALL_API_KEY</b> ב-Render (ראו DEPLOY-loop-it.md). אפשר להזין משחקים ותוצאות ידנית בינתיים.</div>`}
   </div>`;
 
   // טופס הוספת משחק
@@ -477,8 +477,8 @@ async function renderAdmin() {
     box.innerHTML = '<div class="msg info">מסנכרן…</div>';
     try {
       const r = await api('/admin/sync', { method: 'POST' });
-      box.innerHTML = `<div class="msg ok">הסתיים: נבדקו ${r.checked} משחקים, עודכנו ${r.updated}.</div>`;
-      if (r.updated) { confetti(40); setTimeout(renderAdmin, 1200); }
+      box.innerHTML = `<div class="msg ok">הסתיים ✓ — נוצרו ${r.imported || 0} משחקים חדשים, עודכנו זוגות ב-${r.updatedTeams || 0}, ותוצאות ב-${r.updated || 0}.</div>`;
+      if (r.imported || r.updatedTeams || r.updated) { confetti(40); setTimeout(renderAdmin, 1400); }
     } catch (e) { box.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   };
 

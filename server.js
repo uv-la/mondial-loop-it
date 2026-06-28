@@ -6,7 +6,7 @@ import path from 'node:path';
 import { db } from './db.js';
 import { scorePrediction } from './scoring.js';
 import { mailerConfigured, sendOtpEmail, verifyMailer } from './mailer.js';
-import { apiConfigured, getFixtureById, listWorldCupFixtures } from './providers.js';
+import { apiConfigured, getFixtureById, listWorldCupFixtures, fetchKnockoutFixtures } from './providers.js';
 import {
   PORT, DEMO_MODE, ADMIN_EMAILS, OTP_TTL_MINUTES, SESSION_TTL_HOURS,
   STAGES, STAGE_BY_KEY, SCORING, POLL_MINUTES,
@@ -352,18 +352,59 @@ app.post('/api/admin/matches/:id/result', requireAdmin, (req, res) => {
   res.json({ ok: true, scored });
 });
 
-// סנכרון אוטומטי מה-API: עובר על משחקים עם מזהה API שעדיין אין להם תוצאה,
-// מושך את התוצאה, ומזין אוטומטית את אלו שהסתיימו.
+// ייבוא אוטומטי של המשחקים (זוגות הנבחרות) מה-API למערכת.
+// יוצר משחקים חדשים, ומעדכן זוגות/מועד למשחקים קיימים (לפי מזהה ה-API),
+// בלי לגעת בתוצאות שכבר הוזנו.
+function importFixtures(fixtures) {
+  let created = 0, updatedTeams = 0;
+  const tx = db.transaction(() => {
+    for (const fx of fixtures) {
+      if (!fx.fixtureId || !fx.teamA || !fx.teamB) continue;
+      const fid = String(fx.fixtureId);
+      const sortOrder = fx.kickoff ? Math.floor(new Date(fx.kickoff).getTime() / 1000) : 0;
+      const existing = db.prepare('SELECT * FROM matches WHERE provider_fixture_id = ?').get(fid);
+      if (existing) {
+        // לא נוגעים במשחק שכבר הוזנה לו תוצאה ידנית/אוטומטית
+        if (!existing.result_entered) {
+          db.prepare(
+            'UPDATE matches SET stage=?, team_a=?, team_b=?, kickoff=?, sort_order=? WHERE id=?'
+          ).run(fx.stage, fx.teamA, fx.teamB, fx.kickoff || existing.kickoff, sortOrder, existing.id);
+          if (existing.team_a !== fx.teamA || existing.team_b !== fx.teamB) updatedTeams++;
+        }
+      } else {
+        db.prepare(
+          'INSERT INTO matches (stage, team_a, team_b, kickoff, sort_order, provider_fixture_id, provider_home_is_a) VALUES (?, ?, ?, ?, ?, ?, 1)'
+        ).run(fx.stage, fx.teamA, fx.teamB, fx.kickoff || null, sortOrder, fid);
+        created++;
+      }
+    }
+  });
+  tx();
+  return { created, updatedTeams };
+}
+
+// עדכון אוטומטי מלא: מושך את לוח המשחקים מה-API (יוצר/מעדכן משחקים),
+// ואז מזין תוצאות לכל המשחקים שהסתיימו. רץ אוטומטית כל כמה שעות + ידנית.
 async function runSync() {
   if (!apiConfigured) return { ok: false, error: 'no-key', updated: 0, checked: 0 };
+
+  // 1) ייבוא/עדכון המשחקים מה-API
+  let imported = { created: 0, updatedTeams: 0 };
+  const fixtures = await fetchKnockoutFixtures();
+  if (fixtures.length) imported = importFixtures(fixtures);
+
+  // 2) הזנת תוצאות לכל משחק עם מזהה API שעדיין אין לו תוצאה
   const matches = db.prepare(
     "SELECT * FROM matches WHERE provider_fixture_id IS NOT NULL AND provider_fixture_id != '' AND result_entered = 0"
   ).all();
+  const byFid = new Map(fixtures.map((f) => [String(f.fixtureId), f]));
   let updated = 0;
   const details = [];
   for (const m of matches) {
     try {
-      const r = await getFixtureById(m.provider_fixture_id, !!m.provider_home_is_a);
+      // אם כבר משכנו את המשחק למעלה — נשתמש בנתון הזה; אחרת נשלוף בודד
+      let r = byFid.get(String(m.provider_fixture_id));
+      if (!r) r = await getFixtureById(m.provider_fixture_id, !!m.provider_home_is_a);
       if (r && r.decided) {
         applyResult(m, r.winner, r.scoreA, r.scoreB);
         updated++;
@@ -373,7 +414,11 @@ async function runSync() {
       details.push({ id: m.id, error: e.message });
     }
   }
-  return { ok: true, checked: matches.length, updated, details };
+  return {
+    ok: true,
+    imported: imported.created, updatedTeams: imported.updatedTeams,
+    checked: matches.length, updated, details,
+  };
 }
 
 app.post('/api/admin/sync', requireAdmin, async (req, res) => {
@@ -435,7 +480,9 @@ app.listen(PORT, async () => {
     const tick = async () => {
       try {
         const r = await runSync();
-        if (r.updated) console.log(`[סנכרון] עודכנו ${r.updated} משחקים אוטומטית`);
+        if (r.imported || r.updatedTeams || r.updated) {
+          console.log(`[סנכרון] נוצרו ${r.imported || 0} משחקים, עודכנו זוגות ב-${r.updatedTeams || 0}, תוצאות ב-${r.updated || 0}`);
+        }
       } catch (e) {
         console.error('[סנכרון] שגיאה:', e.message);
       }

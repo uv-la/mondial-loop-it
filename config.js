@@ -49,5 +49,5 @@ export const FOOTBALL_API_KEY = process.env.FOOTBALL_API_KEY || '';
 export const FOOTBALL_API_HOST = process.env.FOOTBALL_API_HOST || 'v3.football.api-sports.io';
 export const WC_LEAGUE_ID = process.env.WC_LEAGUE_ID || '1';   // מזהה המונדיאל ב-API-Football
 export const WC_SEASON = process.env.WC_SEASON || '2026';
-// כל כמה דקות לבדוק תוצאות אוטומטית (0 = כבוי, ידני בלבד)
-export const POLL_MINUTES = Number(process.env.POLL_MINUTES || 10);
+// כל כמה דקות לעדכן משחקים+תוצאות אוטומטית (0 = כבוי). ברירת מחדל: כל שעתיים.
+export const POLL_MINUTES = Number(process.env.POLL_MINUTES || 120);
