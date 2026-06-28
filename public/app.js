@@ -227,7 +227,7 @@ async function renderMatches() {
   const groups = {};
   for (const m of data.matches) (groups[m.stage] ||= []).push(m);
 
-  let html = deadlineBanner();
+  let html = resultsAlert(data.matches) + deadlineBanner();
   for (const stageKey of order) {
     const list = groups[stageKey];
     if (!list || !list.length) continue;
@@ -236,8 +236,67 @@ async function renderMatches() {
       <span class="mult">בינגו = ${state.config.scoring.bingo * stage.multiplier} נק'</span></div>`;
     for (const m of list) html += matchCard(m);
   }
+  // כפתור נעילת כל הניחושים — רק אם יש משחקים פתוחים
+  const hasOpen = data.matches.some((m) => !m.locked);
+  if (hasOpen) {
+    html += `<div id="lock-msg"></div>
+      <div class="lock-bar"><button class="btn lock" id="btn-lock-all">🔒 שמור ונעל את כל הניחושים</button></div>`;
+  }
   root.innerHTML = html;
   bindMatchCards(data.matches);
+  if (hasOpen) $('#btn-lock-all').onclick = () => lockAllPredictions(data.matches);
+}
+
+// התראה על תוצאות חדשות מאז הביקור האחרון
+function resultsAlert(matches) {
+  const finished = matches.filter((m) => m.resultEntered);
+  const seen = new Set(JSON.parse(localStorage.getItem('seenResults') || '[]'));
+  const fresh = finished.filter((m) => !seen.has(m.id));
+  localStorage.setItem('seenResults', JSON.stringify(finished.map((m) => m.id)));
+  if (!fresh.length) return '';
+  const items = fresh.slice(0, 4).map((m) => `${m.teamA} ${m.actualScoreA}–${m.actualScoreB} ${m.teamB}`).join(' · ');
+  return `<div class="results-alert">🆕 <b>תוצאות חדשות:</b> ${esc(items)}${fresh.length > 4 ? ' ועוד…' : ''} — בדקו את הדירוג! 🏆</div>`;
+}
+
+// נעילת/שמירת כל הניחושים — מאתרת ניחוש חסר ומפנה אליו
+async function lockAllPredictions(matches) {
+  const box = $('#lock-msg');
+  const openEls = [...document.querySelectorAll('.match')].filter((el) => {
+    const m = matches.find((x) => x.id === Number(el.dataset.id));
+    return m && !m.locked;
+  });
+
+  for (const el of openEls) {
+    const sel = el.querySelector('.team-btn.sel');
+    const sa = el.querySelector('.sa').value;
+    const sb = el.querySelector('.sb').value;
+    if (!sel || sa === '' || sb === '') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('needs-fill');
+      setTimeout(() => el.classList.remove('needs-fill'), 2500);
+      const missing = !sel ? 'בחרו מי עולה הלאה' : 'הזינו תוצאה';
+      if (sel && sa === '') el.querySelector('.sa').focus();
+      else if (sel && sb === '') el.querySelector('.sb').focus();
+      box.innerHTML = `<div class="msg err">⬆️ חסר ניחוש — ${missing} במשחק המודגש, ואז לחצו שוב 🔒</div>`;
+      box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      return;
+    }
+  }
+
+  // הכל מלא → שמירה
+  box.innerHTML = '<div class="msg info">שומר…</div>';
+  let ok = 0, fail = 0;
+  for (const el of openEls) {
+    const id = Number(el.dataset.id);
+    const winner = el.querySelector('.team-btn.sel').dataset.pick;
+    const scoreA = Number(el.querySelector('.sa').value);
+    const scoreB = Number(el.querySelector('.sb').value);
+    try { await api('/predictions', { method: 'POST', body: { matchId: id, winner, scoreA, scoreB } }); ok++; }
+    catch { fail++; }
+  }
+  if (fail) box.innerHTML = `<div class="msg err">נשמרו ${ok}, ${fail} נכשלו (אולי ננעלו). נסו שוב.</div>`;
+  else { box.innerHTML = `<div class="msg ok">🎉 כל ${ok} הניחושים נשמרו בהצלחה! בהצלחה 😉</div>`; confetti(90); }
+  box.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 // באנר דדליין — מוצג כשהוגדר מועד סגירה
@@ -297,6 +356,7 @@ function matchCard(m) {
     </div>
     ${m.locked ? '' : `<div class="save-row"><button class="btn small save-btn">💾 שמירת ניחוש</button><span class="save-status muted tiny"></span></div>`}
     ${resultLine}
+    ${m.locked ? `<button class="btn peek" data-peek="${m.id}">👁️ מי ניחש מה</button><div class="peek-box" id="peek-${m.id}"></div>` : ''}
   </div>`;
 }
 
@@ -304,6 +364,26 @@ function bindMatchCards(matches) {
   document.querySelectorAll('.match').forEach((el) => {
     const id = Number(el.dataset.id);
     const m = matches.find((x) => x.id === id);
+
+    // כפתור "מי ניחש מה" (למשחקים נעולים)
+    const peekBtn = el.querySelector('.peek');
+    if (peekBtn) peekBtn.onclick = async () => {
+      const target = el.querySelector('.peek-box');
+      if (target.dataset.open === '1') { target.innerHTML = ''; target.dataset.open = '0'; return; }
+      target.innerHTML = '<span class="tiny muted">טוען…</span>';
+      try {
+        const r = await api(`/matches/${id}/predictions`);
+        if (!r.predictions.length) { target.innerHTML = '<span class="tiny muted">אף אחד לא ניחש משחק זה</span>'; }
+        else {
+          target.innerHTML = '<div class="peek-list">' + r.predictions.map((x) =>
+            `<div class="peek-row"><span class="pn">${esc(x.username)}</span>
+              <span class="pg">${esc(x.winnerName)} · ${x.scoreA}–${x.scoreB}</span>
+              ${x.points != null ? `<span class="pp">${x.points} נק'</span>` : ''}</div>`).join('') + '</div>';
+        }
+        target.dataset.open = '1';
+      } catch (e) { target.innerHTML = `<span class="tiny" style="color:var(--red-bright)">${esc(e.message)}</span>`; }
+    };
+
     if (m.locked) return;
     let pick = m.prediction ? m.prediction.winner : null;
 

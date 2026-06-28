@@ -238,6 +238,30 @@ app.post('/api/predictions', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// מי ניחש מה — נחשף רק אחרי שהמשחק ננעל (כדי לא לחשוף מראש)
+app.get('/api/matches/:id/predictions', requireAuth, (req, res) => {
+  const id = Number(req.params.id);
+  const match = db.prepare('SELECT * FROM matches WHERE id = ?').get(id);
+  if (!match) return res.status(404).json({ error: 'משחק לא נמצא' });
+  if (!isLocked(match)) return res.status(403).json({ error: 'הניחושים ייחשפו אחרי הנעילה' });
+
+  const rows = db.prepare(`
+    SELECT u.username, p.winner, p.score_a, p.score_b, p.points, p.scored
+    FROM predictions p JOIN users u ON u.id = p.user_id
+    WHERE p.match_id = ? ORDER BY p.scored DESC, p.points DESC, u.username
+  `).all(id);
+
+  res.json({
+    teamA: match.team_a, teamB: match.team_b,
+    predictions: rows.map((r) => ({
+      username: r.username,
+      winnerName: r.winner === 'A' ? match.team_a : match.team_b,
+      scoreA: r.score_a, scoreB: r.score_b,
+      points: r.scored ? r.points : null,
+    })),
+  });
+});
+
 // =================== טבלת דירוג ===================
 app.get('/api/leaderboard', (req, res) => {
   const rows = db.prepare(`

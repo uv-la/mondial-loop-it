@@ -258,6 +258,35 @@ td.total { font-weight: 900; font-size: 17px; color: var(--gold); }
 .confetti-piece { position: absolute; top: -12px; width: 10px; height: 14px; border-radius: 2px; animation: fall linear forwards; }
 @keyframes fall { to { transform: translateY(105vh) rotate(720deg); opacity: .9; } }
 
+/* פוטר זכויות */
+.site-footer {
+  margin-top: 26px; padding: 18px 12px; text-align: center;
+  color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
+}
+.site-footer b { color: var(--gold-soft); }
+.site-footer .ar-flag { width: 22px; height: 15px; border-radius: 3px; object-fit: cover; box-shadow: 0 2px 5px rgba(0,0,0,.4); }
+
+/* כפתור נעילת ניחושים + ולידציה */
+.lock-bar { position: sticky; bottom: calc(90px + var(--safe-b)); z-index: 40; margin: 18px 0 6px; }
+@media (min-width: 720px) { .lock-bar { bottom: 12px; } }
+.btn.lock { width: 100%; background: linear-gradient(135deg, #1763b8, #2e86e6); color: #fff; box-shadow: 0 10px 26px rgba(23,99,184,.5); font-size: 16px; padding: 16px; }
+#lock-msg .msg { text-align: center; font-size: 14.5px; }
+.match.needs-fill { border-color: var(--red-bright); box-shadow: 0 0 0 4px rgba(224,36,79,.25); animation: shakepulse .5s; }
+@keyframes shakepulse { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+
+/* חשיפת מי ניחש */
+.btn.peek { background: transparent; color: var(--gold); border: 1px solid var(--line); padding: 7px 12px; font-size: 12.5px; margin-top: 10px; border-radius: 10px; }
+.peek-list { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.peek-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,.06); }
+.peek-row .pn { font-weight: 600; }
+.peek-row .pp { color: var(--gold); font-weight: 800; font-size: 12px; }
+.peek-row .pg { color: var(--muted); font-size: 12px; }
+
+/* התראת תוצאות חדשות */
+.results-alert { background: rgba(255,199,44,.14); border: 1px solid var(--gold); color: #ffe9a8; border-radius: 13px; padding: 12px 14px; margin-bottom: 14px; font-size: 14px; }
+.results-alert b { color: var(--gold); }
+
 /* כלליים */
 .hide { display: none !important; }
 .center { text-align: center; }
