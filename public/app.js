@@ -99,6 +99,30 @@ function flagFor(name) {
   return '<span class="flag-ball">⚽</span>';
 }
 
+// מאתר את המשחק הקרוב ביותר מבחינת תאריך ושעה:
+// המשחק הבא שטרם התחיל (מועד הפתיחה הקרוב בעתיד), ואם כולם כבר עברו — האחרון שבהם.
+// משחקים ללא מועד פתיחה אינם נכללים בחישוב.
+function nearestMatchId(matches) {
+  const now = Date.now();
+  const withTime = matches.filter((m) => m.kickoff);
+  if (!withTime.length) return null;
+  const t = (m) => new Date(m.kickoff).getTime();
+  const future = withTime.filter((m) => t(m) >= now);
+  if (future.length) return future.reduce((a, b) => (t(a) <= t(b) ? a : b)).id;
+  return withTime.reduce((a, b) => (t(a) >= t(b) ? a : b)).id; // כולם בעבר → האחרון
+}
+
+// גולל את המשחק הקרוב ביותר למרכז המסך כדי שלא יצטרכו לגלול ידנית.
+// מוגבל ל-root הנראה כדי לא לתפוס כרטיס של טאב מוסתר עם אותו מזהה.
+function focusNearestMatch(root, matches) {
+  const id = nearestMatchId(matches);
+  if (id == null) return;
+  requestAnimationFrame(() => {
+    const el = root.querySelector(`.match[data-id="${id}"]`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+}
+
 // קונפטי חגיגי (לבינגו / זכייה)
 function confetti(burst = 70) {
   const layer = $('#confetti');
@@ -198,7 +222,12 @@ async function afterLogin() {
 const tabs = document.querySelectorAll('.tabs button');
 tabs.forEach((b) => b.onclick = () => switchTab(b.dataset.tab));
 
+// מסמן שבטעינת הטאב הבאה יש למקד את המשחק הקרוב (רק בפתיחה, לא ברינדור חוזר אחרי עריכה).
+let pendingFocus = { matches: false, admin: false };
+
 function switchTab(name) {
+  if (name === 'matches') pendingFocus.matches = true;
+  if (name === 'admin') pendingFocus.admin = true;
   tabs.forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   ['matches', 'leaderboard', 'rules', 'admin'].forEach((t) => {
     const id = t === 'admin' ? 'tab-admin-panel' : 'tab-' + t;
@@ -245,6 +274,7 @@ async function renderMatches() {
   root.innerHTML = html;
   bindMatchCards(data.matches);
   if (hasOpen) $('#btn-lock-all').onclick = () => lockAllPredictions(data.matches);
+  if (pendingFocus.matches) { pendingFocus.matches = false; focusNearestMatch(root, data.matches); }
 }
 
 // התראה על תוצאות חדשות מאז הביקור האחרון
@@ -689,6 +719,7 @@ async function renderAdmin() {
   };
 
   bindAdminRows(data.matches);
+  if (pendingFocus.admin) { pendingFocus.admin = false; focusNearestMatch(root, data.matches); }
 }
 
 function adminMatchRow(m, provConfigured) {
