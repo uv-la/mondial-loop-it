@@ -112,6 +112,22 @@ function nearestMatchId(matches) {
   return withTime.reduce((a, b) => (t(a) >= t(b) ? a : b)).id; // כולם בעבר → האחרון
 }
 
+// טקסט "כמה זמן נותר" עד מועד המשחק (בשעות). מחזיר null אם המשחק כבר התחיל/עבר.
+function timeLeftLabel(iso) {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return null;
+  const hours = ms / 3600000;
+  if (hours < 1) {
+    const mins = Math.max(1, Math.round(ms / 60000));
+    return `נותרו כ-${mins} דק'`;
+  }
+  const h = Math.round(hours);
+  if (h === 1) return 'נותרה כשעה';
+  if (h === 2) return 'נותרו כשעתיים';
+  return `נותרו כ-${h} שעות`;
+}
+
 // גולל את המשחק הקרוב ביותר למרכז המסך כדי שלא יצטרכו לגלול ידנית.
 // מוגבל ל-root הנראה כדי לא לתפוס כרטיס של טאב מוסתר עם אותו מזהה.
 function focusNearestMatch(root, matches) {
@@ -256,6 +272,9 @@ async function renderMatches() {
   const groups = {};
   for (const m of data.matches) (groups[m.stage] ||= []).push(m);
 
+  // המשחק הקרוב ביותר — עליו בלבד נציג "כמה זמן נותר".
+  const nearestId = nearestMatchId(data.matches);
+
   let html = resultsAlert(data.matches) + deadlineBanner();
   for (const stageKey of order) {
     const list = groups[stageKey];
@@ -263,7 +282,7 @@ async function renderMatches() {
     const stage = state.config.stages.find((s) => s.key === stageKey);
     html += `<div class="stage-title">${esc(stage.label)}
       <span class="mult">בינגו = ${state.config.scoring.bingo * stage.multiplier} נק'</span></div>`;
-    for (const m of list) html += matchCard(m);
+    for (const m of list) html += matchCard(m, m.id === nearestId);
   }
   // כפתור נעילת כל הניחושים — רק אם יש משחקים פתוחים
   const hasOpen = data.matches.some((m) => !m.locked);
@@ -338,8 +357,9 @@ function deadlineBanner() {
   return `<div class="msg info" style="text-align:center">⏰ אפשר להירשם ולנחש עד <b>${esc(fmtDate(dl))}</b> (שעון ישראל)</div>`;
 }
 
-function matchCard(m) {
+function matchCard(m, isNearest = false) {
   const p = m.prediction;
+  const timeLeft = isNearest ? timeLeftLabel(m.kickoff) : null;
   let badge = m.resultEntered
     ? '<span class="badge done">הסתיים</span>'
     : m.locked ? '<span class="badge locked">🔒 נעול</span>'
@@ -373,6 +393,7 @@ function matchCard(m) {
       <span class="kickoff">🕑 ${esc(fmtDate(m.kickoff))}</span>
       ${badge}
     </div>
+    ${timeLeft ? `<div class="time-left">⏳ ${esc(timeLeft)} למשחק הקרוב</div>` : ''}
     <div class="teams">
       <button class="team-btn ${selA}" data-pick="A" ${dis}><span class="flag">${flagFor(m.teamA)}</span>${esc(m.teamA)}<span class="adv">עולה הלאה ↑</span></button>
       <span class="vs">VS</span>
